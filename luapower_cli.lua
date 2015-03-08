@@ -5,6 +5,8 @@
 local lp = require'luapower'
 local glue = require'glue'
 
+if ... == 'luapower_cli' then return end --loaded as module: nothing to show
+
 --listing helpers
 ------------------------------------------------------------------------------
 

@@ -1,5 +1,5 @@
 
---luapower module/package reflection library.
+--luapower module & package reflection library.
 --Written by Cosmin Apreutesei. Public Domain.
 
 --This module leverages the many conventions in luapower to extract and
@@ -849,6 +849,7 @@ end)
 
 --reverse lookup of a package from a module
 module_package = memoize(function(mod)
+	assert(mod, 'module required')
 	--shortcut: builtin module
 	if builtin_modules[mod] then return end
 	if luajit_builtin_modules[mod] then return 'luajit' end
