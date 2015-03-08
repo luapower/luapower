@@ -21,6 +21,7 @@ local luastate = require'luastate'
 
 local cfg = {
 	luapower_dir = '.',
+	git_base_dir = '_git',
 	platforms = {
 		mingw32 = true, mingw64 = true,
 		linux32 = true, linux64 = true,
@@ -141,18 +142,15 @@ local function install_trackers(builtin_modules, filter)
 	--find Lua dependencies of a module by tracing its `require` calls.
 
 	local parents = {} --{module1, ...}
-
 	local dt = {} --{module = dep_table}
-
 	local lua_require = require
-	local attr
 
 	function require(m)
 
 		--create the module's tracking table
 		dt[m] = dt[m] or {}
 
-		--require the module directly if the module doesn't need tracking.
+		--require the module directly if it doesn't need tracking.
 		if builtin_modules[m] then
 			return lua_require(m)
 		end
@@ -160,7 +158,8 @@ local function install_trackers(builtin_modules, filter)
 		--register the module as a dependency for the parent at the top of the stack
 		local parent = parents[#parents]
 		if parent then
-			attr(dt[parent], 'mdeps')[m] = true
+			dt[parent].mdeps = dt[parent].mdeps or {}
+			dt[parent].mdeps[m] = true
 		end
 
 		--push the module into the parents stack
@@ -206,20 +205,17 @@ local function install_trackers(builtin_modules, filter)
 		return ret
 	end
 
-	--load these after installing the require tracker.
-	local glue = lua_require'glue'
-	local ffi = lua_require'ffi'
-	attr = glue.attr
-
 	--find C dependencies of a module by tracing the `ffi.load` calls.
 
+	local ffi = lua_require'ffi'
 	local ffi_load = ffi.load
 
 	function ffi.load(clib, ...)
-		local ok, ret = glue.pcall(ffi_load, clib, ...)
+		local ok, ret = xpcall(ffi_load, debug.traceback, clib, ...)
 		local m = parents[#parents]
 		local t = dt[m]
-		attr(t, 'ffi_deps')[clib] = ok
+		t.ffi_deps = t.ffi_deps or {}
+		t.ffi_deps[clib] = ok
 		if not ok then
 			error(ret, 2)
 		else
@@ -227,16 +223,16 @@ local function install_trackers(builtin_modules, filter)
 		end
 	end
 
-	function track_module(mod, loader_mod)
-		if loader_mod then
-			local ok, ret = pcall(require, loader_mod)
+	function track_module(m, loader_m)
+		if loader_m then
+			local ok, ret = pcall(require, loader_m)
 			if not ok then --put the error on account of mod
 				dt[m] = {loaderr = err} --clear deps
 				return t
 			end
 		end
-		pcall(require, mod)
-		return dt[mod]
+		pcall(require, m)
+		return dt[m]
 	end
 
 end
@@ -384,9 +380,13 @@ local function read_pipe(cmd)
 	return table.concat(t, '\n')
 end
 
+local function git_dir(package)
+	return '_git/'..package..'/.git'
+end
+
 --git command string for a package repo
 local function gitp(package, args)
-	return 'git --git-dir="_git/'..package..'/.git" '..args
+	return 'git.exe --git-dir="'..git_dir(package)..'" '..args
 end
 
 function git(package, cmd)
@@ -398,7 +398,7 @@ function gitlines(package, cmd)
 end
 
 function repo(package)
-	return libgit2.open(powerpath('_git/'..package..'/.git'))
+	return libgit2.open(powerpath(git_dir(package)))
 end
 
 
@@ -599,39 +599,13 @@ end)
 --============================================================================
 
 
---disk files, irrespective of what git is tracking
-------------------------------------------------------------------------------
-
---check if a path is valid for containing tracked files
-local function is_valid_path(p)
-	return not p or not (
-		(p:match'^_'              --"_*" is reserved
-		and not p:match'^_git/')  --"_git" is ok though
-		or p:match'^%.git/'       --starts with ".git/"
-		or p:match'/%.git/'       --contains "/.git/"
-	)
-end
-
---get all the trackable files in luapower dir recursively
-disk_files = memoize(function()
-	local t = {}
-	for f, p, mode in dir(powerpath(), '-R') do
-		local path = (p and p .. '/' or '') .. f
-		if mode ~= 'directory' and is_valid_path(path) then
-			t[path] = true
-		end
-	end
-	return t
-end)
-
-
 --packages and their files
 ------------------------------------------------------------------------------
 
 --_git/<name>.origin -> {name = true}
 known_packages = memoize(function()
 	local t = {}
-	for f in dir(powerpath'_git') do
+	for f in dir(powerpath(config'git_base_dir')) do
 		local s = f:match'^(.-)%.origin$'
 		if s then t[s] = true end
 	end
@@ -641,9 +615,9 @@ end)
 --_git/<name>/.git -> {name = true}
 installed_packages = memoize(function()
 	local t = {}
-	for f, _, mode in dir(powerpath'_git') do
+	for f, _, mode in dir(powerpath(config'git_base_dir')) do
 		if mode == 'directory'
-			and lfs.attributes(powerpath('_git/'..f..'/.git'), 'mode') == 'directory'
+			and lfs.attributes(powerpath(git_dir(f)), 'mode') == 'directory'
 		then
 			t[f] = true
 		end
@@ -1454,42 +1428,6 @@ end
 --consistency checks
 --============================================================================
 
---check if more than one package tracks the same file
-multitracked_files = memoize(function()
-	local files = {} --{file = package}
-	local dupes = {}
-	for package in pairs(installed_packages()) do
-		for path in pairs(tracked_files(package)) do
-			if files[path] then
-				dupes[path..' in '..package..' and '..files[path]] = true
-			end
-			files[path] = package
-		end
-	end
-	return dupes
-end)
-
---check if there are files on disk that are not tracked by any git project
-untracked_files = memoize(function()
-	local untracked = disk_files()
-	for package in pairs(installed_packages()) do
-		for path in pairs(tracked_files(package)) do
-			untracked[path] = false
-		end
-	end
-	--trick: tracked_files('..') gets us GIT_DIR `_git/../.git` which is `.git`
-	for path in pairs(tracked_files('..')) do
-		untracked[path] = false
-	end
-	local t = {}
-	for path, untracked in pairs(untracked) do
-		if untracked then
-			t[path] = true
-		end
-	end
-	return t
-end)
-
 --check for the same doc in a different path.
 --since all docs share the same namespace on the website, this is not allowed.
 duplicate_docs = memoize(function()
@@ -1601,6 +1539,9 @@ end
 function exec(func, ...)
 	return func(...)
 end
+
+function restart() error'not connected' end
+function stop() error'not connected' end
 
 return luapower
 

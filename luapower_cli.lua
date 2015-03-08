@@ -122,8 +122,6 @@ end
 function consistency_checks(package)
 	--global checks, only enabled if package is not specified
 	if not package then
-		list_errors('multitracked files', lp.multitracked_files())
-		list_errors('untracked files', lp.untracked_files())
 		list_errors('duplicate docs', lp.duplicate_docs())
 	end
 	--package-specific checks (they also work with no package specified)
@@ -348,9 +346,6 @@ local function init_actions()
 
 	add_section'CHECKS'
 	add_action('check',        '[package]', 'run all consistency checks', package_arg(consistency_checks))
-	add_action('tracked',      '',          'list tracked files', keys_lister(lp.disk_files))
-	add_action('multitracked', '',          'list files tracked by multiple packages', keys_lister(lp.multitracked_files))
-	add_action('untracked',    '',          'list files not tracked by any package', keys_lister(lp.untracked_files))
 	add_action('load-errors',  '[package] [platform]', 'list module load errors', kv_lister(lp.load_errors))
 
 	add_section'DEPENDENCIES'
