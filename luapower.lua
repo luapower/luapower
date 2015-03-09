@@ -1163,6 +1163,27 @@ function track_module_platform(mod, package, platform)
 	return db[platform] and db[platform][package] and db[platform][package][mod] or {}
 end
 
+function server_status(platform0)
+	local loop = require'socketloop'
+	local t = {}
+	for platform in glue.sortedpairs(config'servers') do
+		if not platform0 or platform == platform0 then
+			loop.newthread(function()
+				local lp, err = connect(platform)
+				if lp then
+					local os, arch = lp.platform()
+					t[platform] = {os = os, arch = arch}
+	 				lp.close()
+	 			else
+	 				t[platform] = {err = err}
+	 			end
+			end)
+		end
+	end
+	loop.start(1)
+	return t
+end
+
 
 --module tracking breakdown
 ------------------------------------------------------------------------------

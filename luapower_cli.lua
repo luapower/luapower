@@ -373,6 +373,12 @@ local function init_actions()
 	add_action('restart', '', 'restart a RPC server', lp.restart)
 	add_action('stop',    '', 'stop a RPC server', lp.stop)
 	add_action('platform','', 'report platform', function() print(lp.platform()) end)
+	add_action('server-status', '[platform]', 'show status of RPC servers',
+		function(platform)
+			for platform, t in glue.sortedpairs(lp.server_status()) do
+				print(platform, t.os or '', t.arch or '', t.err or '')
+			end
+		end)
 
 	add_section'DEPENDENCY DB'
 	add_action('update-db', '[package] [platform]', 'update the dependency database',
