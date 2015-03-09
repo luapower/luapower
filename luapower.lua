@@ -1123,6 +1123,7 @@ function update_db(package, platform0)
 					lp, err = connect(platform)
 				end
 				if not lp then
+					--print(platform..': '..err)
 					return
 				end
 				local data = lp.exec(function(package)
