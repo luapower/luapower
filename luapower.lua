@@ -1,5 +1,5 @@
 
---luapower module & package reflection library.
+--luapower package reflection library.
 --Written by Cosmin Apreutesei. Public Domain.
 
 local luapower = setmetatable({}, {__index = _G})

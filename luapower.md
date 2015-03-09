@@ -1,10 +1,10 @@
 ---
-tagline: luapower module & package reflection library
+tagline: luapower package reflection library
 ---
 
 ## `local lp = require'luapower'`
 
-This library leverages the many of the conventions in luapower to extract and
+This module leverages the many conventions in luapower to extract and
 aggregate metadata about packages, modules and documentation and perform
 various consistency checks. The entire API is memoized so it can be abused
 without worrying about caching the results of the function calls.
@@ -17,10 +17,10 @@ First, you might need to say where the luapower tree is (the default path is '.'
 
 	lp.config('luapower_dir', '/path/to/luapower')
 
-After that, the API can then be split into the different types of things it does:
+The API can be categorized based on the different types of things it does:
 
-  1. getting info about packages and modules in the luapower tree - the bulk
-  of the API is for that.
+  1. getting info about packages and modules in the luapower tree - this is
+  the bulk of the API.
   2. starting an RPC server/connecting to an RPC server and use the API
   remotely, in order to collect data from different platforms.
   3. creating/updating a small database (luapower_db.lua) containing module
@@ -46,6 +46,9 @@ To connect to an RPC server, do:
 
 The result is a full luapower API with the additional functions `close()`,
 `restart()`, and `stop()` to control the connection and/or the server.
+
+Each connection gets its own separate Lua state to do stuff in, so the
+luapower cache is lost when the connection is closed.
 
 To update the dependency database, do:
 
