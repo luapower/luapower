@@ -250,8 +250,9 @@ local function help()
 		end
 	end
 	print''
-	print'The `package` arg defaults to the env var PROJECT, as set by the `proj` command,'
-	print'and if that is not set, it defaults to `--all`, meaning all packages.'
+	print'The `package` arg defaults to the env var LUAPOWER_PACKAGE, as set'
+	print'by the `git` subshell, and if that is not set, it defaults to `--all`,'
+	print'which means that it applies to packages.'
 	print''
 end
 
@@ -269,7 +270,7 @@ local function package_arg(handler, package_required)
 		if package == '--all' then
 			package = nil
 		else
-			package = package or os.getenv'PROJECT'
+			package = package or os.getenv'LUAPOWER_PACKAGE'
 		end
 		assert_arg(package or not package_required, 'package required')
 		assert_arg(not package or lp.installed_packages()[package],
@@ -393,8 +394,9 @@ local function run(action, ...)
 	init_actions()
 	if not actions[action] then
 		print''
-		print('ERROR: unknown command '..action)
-		action = 'help'
+		print('ERROR: invalid command '..action)
+		print''
+		return
 	end
 	actions[action].handler(...)
 end
