@@ -2,11 +2,6 @@
 --luapower module & package reflection library.
 --Written by Cosmin Apreutesei. Public Domain.
 
---This module leverages the many conventions in luapower to extract and
---aggregate metadata about packages, modules, and documentation and perform
---various consistency checks. The entire API is memoized so it can be abused
---without worrying about doing multiple calls on the same arguments.
-
 local luapower = setmetatable({}, {__index = _G})
 setfenv(1, luapower)
 
