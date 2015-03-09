@@ -386,7 +386,8 @@ end
 
 --git command string for a package repo
 local function gitp(package, args)
-	return 'git.exe --git-dir="'..git_dir(package)..'" '..args
+	local git = ffi.os == 'Windows' and 'git.exe' or 'git'
+	return git..' --git-dir="'..git_dir(package)..'" '..args
 end
 
 function git(package, cmd)
