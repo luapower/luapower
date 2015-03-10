@@ -187,18 +187,14 @@ local function describe_package(package)
 			local cmd = d_commands[i]
 			local module_deps_func = d_commands[i+1]
 			local add_bin_deps = add_bin_deps(cmd)
-			local t = lp.exec(function(package, module_deps_func, add_bin_deps)
-				local lp = require'luapower'
-				return lp.package_requires_packages_for(function(mod, pkg)
-					return lp.module_requires_packages_for(module_deps_func, mod, pkg, nil, add_bin_deps)
-				end, package)
-			end, package, module_deps_func, add_bin_deps)
+			local t = lp.package_requires_packages_for(module_deps_func,
+				package, nil, add_bin_deps)
 			print(string.format('  %-20s: %s', cmd, enum_keys(t)))
 		end
 		print(string.format('  %-20s: %s', 'd-bin',
-			enum_keys(lp.package_requires_packages_for('bin_deps', package))))
+			enum_keys(lp.bin_deps(package))))
 		print(string.format('  %-20s: %s', 'd-bin-all',
-			enum_keys(lp.package_requires_packages_for('bin_deps_all', package))))
+			enum_keys(lp.bin_deps_all(package))))
 	end
 
 	if next(lp.scripts(package)) then
@@ -297,13 +293,8 @@ end
 local function packages_of_d_command_combined(cmd, pkg, platform)
 	local module_deps_func = assert(dmap[cmd], 'invalid d-... command')
 	local add_bin_deps = add_bin_deps(cmd)
-	return lp.exec(function(pkg, platform, module_deps_func, add_bin_deps)
-		local lp = require'luapower'
-		local function packages_of_module_deps_func(mod, pkg)
-			return lp.module_requires_packages_for(module_deps_func, mod, pkg, platform, add_bin_deps)
-		end
-		return lp.package_requires_packages_for(packages_of_module_deps_func, pkg, platform)
-	end, pkg, platform, module_deps_func, add_bin_deps)
+	return lp.package_requires_packages_for(module_deps_func, pkg, platform,
+		add_bin_deps)
 end
 
 local function start_server(v, ip, port)

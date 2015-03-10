@@ -17,6 +17,7 @@ local luastate = require'luastate'
 local cfg = {
 	luapower_dir = '.',
 	git_base_dir = '_git',
+	oses = {mingw = true, linux = true, osx = true},
 	platforms = {
 		mingw32 = true, mingw64 = true,
 		linux32 = true, linux64 = true,
@@ -92,6 +93,7 @@ function clear_cache(pkg)
 	for _, rememoize in pairs(rememoizers) do
 		rememoize()
 	end
+	collectgarbage() --unload modules from the tracking Lua state
 end
 
 --other helpers
@@ -1374,11 +1376,12 @@ function module_requires_packages_for(module_deps_func, mod, package, platform, 
 end
 
 --combined package dependencies of all modules of a package
-function package_requires_packages_for(package_deps_func, package, platform)
-	local package_deps_func = callback(package_deps_func)
+function package_requires_packages_for(mdeps_func, package, platform, add_bin_deps)
+	mdeps_func = callback(mdeps_func)
 	local pdeps = {}
 	for mod in pairs(modules(package)) do
-		glue.update(pdeps, package_deps_func(mod, package, platform))
+		glue.update(pdeps, module_requires_packages_for(mdeps_func, mod,
+			package, platform, add_bin_deps))
 	end
 	return pdeps
 end
