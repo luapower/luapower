@@ -972,15 +972,15 @@ git_version = memoize_package(libgit2 and function(package)
 	local ref = repo:ref_dwim'master'
 	local id = repo:ref_name_to_id(ref:name())
 	local obj = repo:object(id, 'commit')
-	local ver = obj:describe_commit{
+	local ok, ver = pcall(obj.describe_commit, obj, {
 			describe_strategy = libgit2.C.GIT_DESCRIBE_TAGS, --tags
 			always_use_long_format = true, --long
 			show_commit_oid_as_fallback = true, --always
-		}
+		})
 	obj:free()
 	ref:free()
 	repo:free()
-	return ver
+	return ok and ver or 'n/a'
 end or function(package)
 	return git(package, 'describe --tags --long --always')
 end)
@@ -1061,7 +1061,7 @@ end)
 --track_module_platform: track requires on multiple platforms via rpc servers
 ------------------------------------------------------------------------------
 
-local db --{platform = {package = {module = tracking_table}}}
+db = nil --{platform = {package = {module = tracking_table}}}
 
 local function dbfile()
 	return powerpath'luapower_db.lua'
@@ -1196,6 +1196,18 @@ end
 function module_load_error(mod, package, platform)
 	return track_module_platform(mod, package, platform).loaderr
 end
+
+module_platforms = memoize_mod_package(function(mod, package)
+	package = package or module_package(mod)
+	local t = {}
+	for platform in pairs(platforms(package)) do
+		local err = module_load_error(mod, package, platform)
+		if not err or not (err:find'platform not ' or err:find'arch not ') then
+			t[platform] = true
+		end
+	end
+	return t
+end)
 
 function module_requires_loadtime_ffi(mod, package, platform)
 	return track_module_platform(mod, package, platform).ffi_deps or empty
