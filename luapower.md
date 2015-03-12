@@ -6,12 +6,18 @@ tagline: luapower package reflection library
 
 This module leverages the many conventions in luapower to extract and
 aggregate metadata about packages, modules and documentation and perform
-various consistency checks. The entire API is memoized so it can be abused
-without worrying about caching the results of the function calls.
+various consistency checks. It gives accurate information about dependencies
+between modules and packages because it actually loads the Lua modules and
+tracks all `require` and `ffi.load` calls, and then it integrates that
+information with the package information that it gets from git. The entire
+API is memoized so it can be abused without worrying about caching the
+results of the function calls.
 
-Accompanying the library there's an RPC server and a command-line interface.
+Accompanying the library there's a command-line interface and an RPC server
+which can be used to track module dependencies across multiple platforms,
+run automated tests, etc.
 
-## Usage
+## Module usage
 
 First, you might need to say where the luapower tree is (the default path is '.'):
 
@@ -34,7 +40,7 @@ So the bulk of the API contains stuff like, eg.:
 The API is too large for me to describe it all in here, so the functions
 are documented in the code instead, so check that out.
 
-## Remote calls
+## Remote usage
 
 The command to start an RPC server is:
 
@@ -61,7 +67,7 @@ servers are (see the config table). Needless to say, all servers need to
 maintain a copy of the luapower tree which you have to keep synchronized
 somehow (NFS, git, rsync, etc.).
 
-## CLI
+## Command line
 
 Finally, for the command-line, type:
 

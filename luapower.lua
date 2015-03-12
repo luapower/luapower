@@ -378,6 +378,9 @@ local function read_pipe(cmd)
 end
 
 local function git_dir(package)
+	if package == 'luapower-git' then
+		return '.git'
+	end
 	return '_git/'..package..'/.git'
 end
 
@@ -396,7 +399,8 @@ function gitlines(package, cmd)
 end
 
 function repo(package)
-	return libgit2.open(powerpath(git_dir(package)))
+	local path = powerpath(git_dir(package))
+	return libgit2.open(path)
 end
 
 
@@ -727,7 +731,7 @@ local function is_module(mod)
 end
 
 --tracked <doc>.md -> {doc = path}
-docs = memoize_opt_package(function(package)
+local docs_ = opt_package(memoize_package(function(package)
 	local t = {}
 	for path in pairs(tracked_files(package)) do
 		if is_doc_path(path) then
@@ -740,6 +744,14 @@ docs = memoize_opt_package(function(package)
 				t[name] = path
 			end
 		end
+	end
+	return t
+end))
+docs = memoize(function(package)
+	local t = docs_(package)
+	if not package then
+		--luapower-git contains docs too, but they're not owned by any package
+		glue.update(t, docs_'luapower-git')
 	end
 	return t
 end)
