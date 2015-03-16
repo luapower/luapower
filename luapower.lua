@@ -48,8 +48,16 @@ function config(var, val)
 	end
 end
 
+local function plusfile(file)
+	return file and '/'..file or ''
+end
+
 function powerpath(file)
-	return config'luapower_dir'..(file and '/'..file or '')
+	return config'luapower_dir'..plusfile(file)
+end
+
+function gitpath(file)
+	return powerpath(config'git_base_dir'..plusfile(file))
 end
 
 --memoize with total and partial cache invalidation
@@ -379,9 +387,9 @@ end
 
 local function git_dir(package)
 	if package == 'luapower-git' then
-		return '.git'
+		return powerpath'.git'
 	end
-	return '_git/'..package..'/.git'
+	return gitpath(package..'/.git')
 end
 
 --git command string for a package repo
@@ -399,8 +407,7 @@ function gitlines(package, cmd)
 end
 
 function repo(package)
-	local path = powerpath(git_dir(package))
-	return libgit2.open(path)
+	return libgit2.open(git_dir(package))
 end
 
 
@@ -560,12 +567,12 @@ local function parse_md_file(md_file)
 	return t
 end
 
---luapower_cat.md parser
+--cat.md parser
 ------------------------------------------------------------------------------
 
 --parse the table of contents file into a list of categories and docs.
 cats = memoize_package(function(package)
-	local more, close = assert(more(powerpath'luapower_cat.md'))
+	local more, close = assert(more(gitpath'cat.md'))
 	local cats = {}
 	local lastcat
 	local misc
@@ -619,7 +626,7 @@ installed_packages = memoize(function()
 	local t = {}
 	for f, _, mode in dir(powerpath(config'git_base_dir')) do
 		if mode == 'directory'
-			and lfs.attributes(powerpath(git_dir(f)), 'mode') == 'directory'
+			and lfs.attributes(git_dir(f), 'mode') == 'directory'
 		then
 			t[f] = true
 		end

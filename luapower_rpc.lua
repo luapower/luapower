@@ -47,9 +47,9 @@ local function send(skt, t)
 end
 
 local function receive(skt)
-	local sz = skt:receive'*l'
-	sz = tonumber(sz)
-	if not sz then return nil, 'message size expected' end
+	local s, err = skt:receive'*l'
+	local sz = tonumber(s)
+	if not sz then return nil, 'message size expected, got '..tostring(s)..', '..tostring(err) end
 	local s = skt:receive(sz)
 	if not s then return nil, sz..' bytes message expected' end
 	return parse(s)

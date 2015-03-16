@@ -168,6 +168,7 @@ local function describe_package(package)
 	print(string.format('  %-20s: %s', 'version', lp.git_version(package)))
 	print(string.format('  %-20s: %s', 'platforms:', enum_keys(lp.platforms(package))))
 	print(string.format('  %-20s: %s', 'csrc dir:', lp.csrc_dir(package) or ''))
+	print(string.format('  %-20s: %s', 'category:', lp.package_cat(package) or ''))
 
 	if next(lp.modules(package)) then
 		h'Modules'
@@ -317,9 +318,9 @@ local function init_actions()
 	add_action('help', '', 'this screen', help)
 
 	add_section'PACKAGES'
-	add_action('packages',       '', 'list installed packages', keys_lister(lp.installed_packages))
-	add_action('known-packages', '', 'list all known package', keys_lister(lp.known_packages))
-	add_action('not-installed',  '', 'list not yet installed packages', keys_lister(lp.not_installed_packages))
+	add_action('ls-cloned',   '', 'list installed packages', keys_lister(lp.installed_packages))
+	add_action('ls-all',      '', 'list all known package', keys_lister(lp.known_packages))
+	add_action('ls-uncloned', '', 'list not yet installed packages', keys_lister(lp.not_installed_packages))
 
 	add_section'PACKAGE INFO'
 	add_action('describe',  '<package>', 'describe a package', package_arg(describe_package, true))
