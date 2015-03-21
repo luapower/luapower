@@ -707,10 +707,11 @@ end
 ------------------------------------------------------------------------------
 
 --check if a path is valid for containing modules
-local function is_module_path(p)
+local function is_module_path(p, platform)
+	platform = platform or current_platform()
 	return not p or not (
 		(p:match'^bin/'
-			and not p:match'^bin/[^/]+/clib/'
+			and not p:match('^bin/'..glue.escape(platform)..'/clib/')
 			and not p:match('^bin/[^/]+/lua/'))
 		or p:match'^csrc/'
 		or p:match'^media/'
@@ -877,6 +878,8 @@ doc_package = function(doc)
 	--shortcut: package doc
 	if installed_packages()[doc] and docs(doc)[doc] then
 		return doc
+	elseif docs('luapower-git')[doc] then
+		return 'luapower-git'
 	end
 	--the slow way: look in all packages for the doc
 	--print('going slow for '..doc..'...')
@@ -1037,7 +1040,10 @@ end or function(package)
 	return git(package, 'config --get remote.origin.url')
 end)
 
-git_mtime = memoize_package(libgit2 and function(package)
+git_mtime = memoize_package(libgit2 and function(package, file)
+	--TODO: implement the file arg
+	--see https://github.com/libgit2/libgit2sharp/issues/89
+	if file then return end
 	local repo = repo(package)
 	local ref = repo:ref_dwim'master'
 	local id = repo:ref_name_to_id(ref:name())
@@ -1047,13 +1053,13 @@ git_mtime = memoize_package(libgit2 and function(package)
 	ref:free()
 	repo:free()
 	return t
-end or function(package)
-	local date = git(package, 'log -1 --format=%cd --date=iso')
+end or function(package, file)
+	local date = git(package, 'log -1 --format=%cd --date=iso'..
+		(file and ' --follow \''..file..'\'' or ''))
 	date = glue.trim(date)
 	local y,m,d,h,M,s = date:match'^(%d+)%-(%d+)%-(%d+) (%d+):(%d+):(%d+)'
 	return os.time{year = y, month = m, day = d, hour = h, min = M, sec = s}
 end)
-
 
 --track_module override: find the module's loader based on its file extension
 ------------------------------------------------------------------------------
