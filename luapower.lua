@@ -130,6 +130,14 @@ current_platform = memoize_permanent(function()
 	return platos[ffi.os]..(ffi.abi'32bit' and '32' or '64')
 end)
 
+function check_platform(platform)
+	if not platform then
+		return current_platform()
+	end
+	glue.assert(config('platforms')[platform], 'unknown platform "%s"', platform)
+	return platform
+end
+
 
 --find dependencies of a module by tracing the `require` and `ffi.load` calls.
 ------------------------------------------------------------------------------
@@ -297,9 +305,9 @@ module_requires_parsed = memoize(function(m) --direct dependencies
 	--require("xxx") or require('xxx')
 	for m in s:gmatch'require%s*(%b())' do
 		m = glue.trim(m:sub(2,-2))
-		if m:match'^%b\'\'$' or m:match'^%b""$' then
+		if m:find'^%b\'\'$' or m:find'^%b""$' then
 			m = m:sub(2,-2)
-			if m:match'^[a-z0-9%.]+$' then
+			if m:find'^[a-z0-9%.]+$' then
 				t[m] = true
 			end
 		end
@@ -432,7 +440,7 @@ local function c_module_name(path)
 end
 
 local function module_name(path)
-	if path:match'^bin/[^/]+/lua/' then
+	if path:find'^bin/[^/]+/lua/' then
 		path = path:gsub('^bin/[^/]+/lua/', '')
 	end
 	return lua_module_name(path) or dasl_module_name(path) or c_module_name(path)
@@ -509,15 +517,25 @@ local function parse_what_file(what_file)
 		and 'PD' or t.license
 
 	--parse the second line which has the format:
-	--		'requires: <pkg1>, <pkg2>, ...'
-	t.dependencies = {}
+	--		'requires: <pkg1>, <pkg2> (<platform1>, ...), ...'
+	t.dependencies = {} -- {platform = {dep = true}}
 	local s = more()
 	s = s and s:match'^[^:]*:(.*)'
 	if s then
 		for s in glue.gsplit(s, ',') do
 			s = glue.trim(s)
 			if s ~= '' then
-				t.dependencies[s] = true
+				local ps = s:match'%b()' --(platform1, ...)
+				if ps then
+					ps = ps:sub(2, -2)
+					for platform in glue.gsplit(ps, '%s*,%s*') do
+						glue.attr(t.dependencies, platform)[s] = true
+					end
+				else
+					for platform in pairs(config'platforms') do
+						glue.attr(t.dependencies, platform)[s] = true
+					end
+				end
 			end
 		end
 	end
@@ -708,33 +726,33 @@ end
 
 --check if a path is valid for containing modules
 local function is_module_path(p, platform)
-	platform = platform or current_platform()
+	platform = check_platform(platform)
 	return not p or not (
-		(p:match'^bin/'
-			and not p:match('^bin/'..glue.escape(platform)..'/clib/')
-			and not p:match('^bin/[^/]+/lua/'))
-		or p:match'^csrc/'
-		or p:match'^media/'
+		(p:find'^bin/'
+			and not p:find('^bin/'..glue.escape(platform)..'/clib/')
+			and not p:find('^bin/[^/]+/lua/'))
+		or p:find'^csrc/'
+		or p:find'^media/'
 	)
 end
 
 --check if a path is valid for containing docs
 local function is_doc_path(p)
 	return not p or not (
-		p:match'^bin/'
-		or p:match'^csrc/'
-		or p:match'^media/'
+		p:find'^bin/'
+		or p:find'^csrc/'
+		or p:find'^media/'
 	)
 end
 
 --check if a name is a module as opposed to a script or app
 local function is_module(mod)
 	return not (
-		mod:match'_test$'
-		or mod:match '_demo$'
-		or mod:match '_demo_.*$' --"demo_<arch>"
-		or mod:match'_benchmark$'
-		or mod:match'_app$'
+		mod:find'_test$'
+		or mod:find'_demo$'
+		or mod:find'_demo_.*$' --"demo_<arch>"
+		or mod:find'_benchmark$'
+		or mod:find'_app$'
 	)
 end
 
@@ -900,7 +918,7 @@ local function ffi_module_in_package(mod, package, platform)
 end
 
 ffi_module_package = memoize(function(mod, package, platform, ...)
-	platform = platform or current_platform()
+	platform = check_platform(platform)
 	--shortcut: try current package.
 	if package and ffi_module_in_package(mod, package, platform) then
 		return package
@@ -942,8 +960,10 @@ c_tags = memoize_package(function(package)
 end)
 
 --package dependencies as declared in the WHAT file
-bin_deps = memoize_package(function(package)
-	return c_tags(package) and c_tags(package).dependencies or {}
+bin_deps = memoize_package(function(package, platform)
+	platform = check_platform(platform)
+	local t = c_tags(package) and c_tags(package).dependencies
+	return t and t[platform] or {}
 end)
 
 --platforms are inferred from the name of the build script:
@@ -954,9 +974,21 @@ build_platforms = memoize_opt_package(function(package)
 		for path in pairs(tracked_files(package)) do
 			local platform = path:match('^'..
 				glue.escape(csrc_dir(package)..'/build-')..'(.-)%.sh$')
-			if config('platforms')[platform] then
+			if platform and config('platforms')[platform] then
 				t[platform] = true
 			end
+		end
+	end
+	return t
+end)
+
+--platforms can also be inferred from the presence of files in bin/<platform>.
+bin_platforms = memoize_opt_package(function(package)
+	local t = {}
+	local ep = glue.escape(platform)
+	for path in pairs(tracked_files(package)) do
+		if path:find('^bin/'..ep..'/.') then
+			t[platform] = true
 		end
 	end
 	return t
@@ -981,6 +1013,7 @@ end)
 platforms = memoize_opt_package(function(package)
 	return glue.update({},
 		build_platforms(package),
+		bin_platforms(package),
 		declared_platforms(package))
 end)
 
@@ -1178,7 +1211,7 @@ function update_db(package, platform0)
 end
 
 function track_module_platform(mod, package, platform)
-	platform = platform or current_platform()
+	platform = check_platform(platform)
 	package = package or module_package(mod)
 	load_db()
 	if not (db[platform] and db[platform][package] and db[platform][package][mod]) then
@@ -1195,7 +1228,7 @@ function server_status(platform0)
 			loop.newthread(function()
 				local lp, err = connect(platform)
 				if lp then
-					local os, arch = lp.platform()
+					local os, arch = lp.osarch()
 					t[platform] = {os = os, arch = arch}
 	 				lp.close()
 	 			else
@@ -1378,10 +1411,10 @@ end
 ------------------------------------------------------------------------------
 
 --direct and indirect binary dependencies of a package
-bin_deps_all = memoize_opt_package(function(package)
+bin_deps_all = memoize_opt_package(function(package, platform)
 	local t = {}
 	local function add_deps(package)
-		for dep in pairs(bin_deps(package)) do
+		for dep in pairs(bin_deps(package, platform)) do
 			if not t[dep] then
 				t[dep] = true
 				add_deps(dep)
@@ -1402,12 +1435,12 @@ function module_requires_packages_for(module_deps_func, mod, package, platform, 
 		if dep_package and dep_package ~= package then
 			deps[dep_package] = true
 			if add_bin_deps then
-				glue.update(deps, bin_deps_all(dep_package))
+				glue.update(deps, bin_deps_all(dep_package, platform))
 			end
 		end
 	end
 	if add_bin_deps then
-		glue.update(deps, bin_deps_all(package))
+		glue.update(deps, bin_deps_all(package, platform))
 	end
 	return deps
 end
@@ -1481,6 +1514,63 @@ end)
 function package_cat(pkg)
 	return packages_cats()[pkg]
 end
+
+build_order = memoize(function(packages, platform)
+	platform = check_platform(platform)
+	local function input_packages()
+		if not packages then
+			return glue.update({}, installed_packages())
+		end
+		local t = {}
+		for pkg in glue.gsplit(packages, '%s*,%s*') do
+			t[pkg] = true
+		end
+		return t
+	end
+	local function dep_maps()
+		local t = {}
+		local function add_pkg(pkg)
+			if t[pkg] then return end --already added
+			glue.assert(known_packages()[pkg], 'unknown package "%s"', pkg)
+			if not build_platforms(pkg)[platform] then return end --"buildable" filter
+			glue.assert(installed_packages()[pkg], 'package not installed "%s"', pkg)
+			local deps = bin_deps(pkg, platform)
+			local dt = {}
+			t[pkg] = dt
+			for pkg in pairs(deps) do
+				if add_pkg(pkg) then
+					dt[pkg] = true
+				end
+			end
+			return true --added
+		end
+		for pkg in pairs(input_packages()) do
+			add_pkg(pkg)
+		end
+		return t
+	end
+	--build packages with zero deps first, remove them from the dep lists
+	--of all other packages and from the list of packages to build,
+	--and repeat, until there are no more packages.
+	local t = dep_maps()
+	local dt = {}
+	while next(t) do
+		local guard = true
+		for pkg, deps in glue.sortedpairs(t) do --stabilize the list
+			if not next(deps) then
+				guard = false
+				table.insert(dt, pkg) --build it
+				t[pkg] = nil --remove it from the to-build table
+				--remove it from all dep lists
+				for _, deps in pairs(t) do
+					deps[pkg] = nil
+				end
+			end
+		end
+		assert(not guard, 'all packages have dependencies')
+	end
+	return dt
+end)
 
 
 --consistency checks
@@ -1590,7 +1680,7 @@ function connect(ip, port, connect)
 	return lp
 end
 
-function platform()
+function osarch()
 	return ffi.os, ffi.arch
 end
 

@@ -262,7 +262,7 @@ local function assert_arg(ok, ...)
 end
 
 --wrapper for command handlers that take <package> as arg#1 -- provides its default value.
-local function package_arg(handler, package_required)
+local function package_arg(handler, package_required, package_invalid_ok)
 	return function(package, ...)
 		if package == '--all' then
 			package = nil
@@ -270,7 +270,7 @@ local function package_arg(handler, package_required)
 			package = package or os.getenv'LUAPOWER_PACKAGE'
 		end
 		assert_arg(package or not package_required, 'package required')
-		assert_arg(not package or lp.installed_packages()[package],
+		assert_arg(not package or package_invalid_ok or lp.installed_packages()[package],
 			'unknown package '..tostring(package))
 		return handler(package, ...)
 	end
@@ -360,12 +360,15 @@ local function init_actions()
 						return packages_of_d_command_combined(cmd, pkg, platform)
 					end, list_keys, enum_keys))(pkg, platform)
 			end)
+	add_action('build-order',       '[package1,...] [platform]', 'build order',
+		package_arg(values_lister(lp.build_order), nil, true))
 
 	add_section'RPC'
 	add_action('server',  '[-v] [ip [port]] | [platform]', 'start the RPC server', start_server)
 	add_action('restart', '', 'restart a RPC server', lp.restart)
 	add_action('stop',    '', 'stop a RPC server', lp.stop)
-	add_action('platform','', 'report platform', function() print(lp.platform()) end)
+	add_action('platform','', 'report platform', function() print(lp.current_platform()) end)
+	add_action('os-arch','', 'report OS and arch', function() print(lp.osarch()) end)
 	add_action('server-status', '[platform]', 'show status of RPC servers',
 		function(platform)
 			for platform, t in glue.sortedpairs(lp.server_status()) do
