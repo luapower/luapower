@@ -336,7 +336,8 @@ local function init_actions()
 	add_action('tags',      '[package [module]]', 'module info', package_arg(list_mtags))
 	add_action('platforms', '[package]', 'supported platforms', package_arg(package_lister(lp.platforms, list_keys, enum_keys)))
 	add_action('ctags',     '[package]', 'C package info', package_arg(package_lister(lp.c_tags, list_ctags, enum_ctags)))
-
+	add_action('csrc-dir',  '[package]', 'C sources dir', package_arg(function(package) print(lp.csrc_dir(package)) end))
+	
 	add_section'CHECKS'
 	add_action('check',        '[package]', 'run all consistency checks', package_arg(consistency_checks))
 	add_action('load-errors',  '[package] [platform]', 'list module load errors', kv_lister(lp.load_errors))

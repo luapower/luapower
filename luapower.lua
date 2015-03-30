@@ -424,6 +424,9 @@ end
 
 --path/*.lua -> Lua module name
 local function lua_module_name(path)
+	if path:find'^bin/[^/]+/lua/' then --platform-dependent module
+		path = path:gsub('^bin/[^/]+/lua/', '')
+	end
 	return path:gsub('/', '.'):match('(.-)%.lua$')
 end
 
@@ -434,16 +437,16 @@ end
 
 --path/*.dll|.so -> C module name
 local function c_module_name(path)
-	local ext = package.cpath:match'%?%.([^;]+)'
+	local ext = package.cpath:match'%?%.([^;]+)' --dll, so
 	local name = path:match('bin/[^/]+/clib/(.-)%.'..ext..'$')
 	return name and name:gsub('/', '.')
 end
 
 local function module_name(path)
-	if path:find'^bin/[^/]+/lua/' then
-		path = path:gsub('^bin/[^/]+/lua/', '')
-	end
-	return lua_module_name(path) or dasl_module_name(path) or c_module_name(path)
+	return 
+		lua_module_name(path) or 
+		dasl_module_name(path) or 
+		c_module_name(path)
 end
 
 --'module_submodule' -> 'module'; 'module.submodule' -> 'module'
@@ -517,7 +520,7 @@ local function parse_what_file(what_file)
 		and 'PD' or t.license
 
 	--parse the second line which has the format:
-	--		'requires: <pkg1>, <pkg2> (<platform1>, ...), ...'
+	--		'requires: <pkg1>, <pkg2> (<platform1> ...), ...'
 	t.dependencies = {} -- {platform = {dep = true}}
 	local s = more()
 	s = s and s:match'^[^:]*:(.*)'
@@ -525,10 +528,10 @@ local function parse_what_file(what_file)
 		for s in glue.gsplit(s, ',') do
 			s = glue.trim(s)
 			if s ~= '' then
-				local ps = s:match'%b()' --(platform1, ...)
+				local s1, ps = s:match'^([^%(]+)%s*%(%s*([^%)]+)%s*%)' --'pkg (platform1 ...)'
 				if ps then
-					ps = ps:sub(2, -2)
-					for platform in glue.gsplit(ps, '%s*,%s*') do
+					s = s1
+					for platform in glue.gsplit(ps, '%s+') do
 						glue.attr(t.dependencies, platform)[s] = true
 					end
 				else
@@ -659,7 +662,7 @@ not_installed_packages = memoize(function()
 		function(pkg) return not installed[pkg] end)
 end)
 
---wrapper for any function(package) that returns a table with keys that
+--wrapper for any function(package, ...) that returns a table with keys that
 --are unique accross all packages. it makes the package argument optional
 --so that if not given, function(package) is called repeatedly for each
 --installed package and the results are accumulated into a single table.
@@ -724,13 +727,13 @@ end
 --tracked files breakdown: modules, scripts, docs
 ------------------------------------------------------------------------------
 
---check if a path is valid for containing modules
+--check if a path is valid for containing modules.
 local function is_module_path(p, platform)
-	platform = check_platform(platform)
+	platform = platform and check_platform(platform) or '[^/]+'
 	return not p or not (
 		(p:find'^bin/'
-			and not p:find('^bin/'..glue.escape(platform)..'/clib/')
-			and not p:find('^bin/[^/]+/lua/'))
+			and not p:find('^bin/'..platform..'/clib/')
+			and not p:find('^bin/'..platform..'/lua/'))
 		or p:find'^csrc/'
 		or p:find'^media/'
 	)
@@ -782,10 +785,11 @@ docs = memoize(function(package)
 	return t
 end)
 
+--FIXME: current platform is assumed for Lua/C module paths.
 local function modules_(package, should_be_module)
 	local t = {}
 	for path in pairs(tracked_files(package)) do
-		if is_module_path(path) then
+		if is_module_path(path, current_platform()) then
 			local mod = module_name(path)
 			if mod and is_module(mod) == should_be_module then
 				t[mod] = path
@@ -799,9 +803,14 @@ local function modules_(package, should_be_module)
 end
 
 --tracked <module>.lua -> {module = path}
-modules = memoize_opt_package(function(package) return modules_(package, true) end)
+modules = memoize_opt_package(function(package) 
+	return modules_(package, true) 
+end)
+
 --tracked <script>.lua -> {script = path}
-scripts = memoize_opt_package(function(package) return modules_(package, false) end)
+scripts = memoize_opt_package(function(package)
+	return modules_(package, false) 
+end)
 
 --tracked file -> {path = type}
 file_types = memoize_opt_package(function(package)
@@ -830,7 +839,8 @@ end)
 local function module_parent_(package, mod)
 	local parent = parent_module_name(mod)
 	if not parent then return end
-	return modules(package)[parent] and parent or module_parent_(package, parent)
+	return modules(package)[parent] and parent 
+		or module_parent_(package, parent)
 end
 local module_parent = memoize_package(module_parent_)
 
@@ -906,6 +916,7 @@ doc_package = function(doc)
 end
 
 --reverse lookup of a package from a ffi module.
+--ffi modules are binaries loaded with ffi.load('<mod>').
 local libfmt = {
 	mingw32 = '%s.dll', mingw64 = '%s.dll',
 	linux32 = 'lib%s.so', linux64 = 'lib%s.so',
@@ -943,7 +954,7 @@ end)
 
 csrc_dir = memoize_package(function(package) --there should be only one csrc dir per package
 	--shortcut: csrc dir matches package name
-	if lfs.attributes(powerpath('csrc/'..package, 'mode')) == 'directory' then
+	if lfs.attributes(powerpath('csrc/'..package), 'mode') == 'directory' then
 		return 'csrc/'..package
 	end
 	for path in pairs(tracked_files(package)) do
@@ -959,11 +970,25 @@ c_tags = memoize_package(function(package)
 	return glue.fileexists(what_file) and parse_what_file(what_file)
 end)
 
+local has_luac_modules = memoize_package(function(package)
+	for mod, path in pairs(modules(package)) do
+		if type(path) == 'string' and c_module_name(path) then
+			return true
+		end
+	end
+end)
+
 --package dependencies as declared in the WHAT file
 bin_deps = memoize_package(function(package, platform)
 	platform = check_platform(platform)
 	local t = c_tags(package) and c_tags(package).dependencies
-	return t and t[platform] or {}
+	t = t and t[platform] or {}
+	--packages containing Lua/C modules have an implicit dependency 
+	--on luajit on Windows.
+	if platform:find'^mingw' and has_luac_modules(package) then
+		t.luajit = true
+	end
+	return t
 end)
 
 --platforms are inferred from the name of the build script:
@@ -985,9 +1010,9 @@ end)
 --platforms can also be inferred from the presence of files in bin/<platform>.
 bin_platforms = memoize_opt_package(function(package)
 	local t = {}
-	local ep = glue.escape(platform)
 	for path in pairs(tracked_files(package)) do
-		if path:find('^bin/'..ep..'/.') then
+		local platform = path:match('^bin/([^/]+)/.')
+		if platform then
 			t[platform] = true
 		end
 	end
@@ -1530,9 +1555,9 @@ build_order = memoize(function(packages, platform)
 	local function dep_maps()
 		local t = {}
 		local function add_pkg(pkg)
-			if t[pkg] then return end --already added
+			if t[pkg] then return true end --already added
 			glue.assert(known_packages()[pkg], 'unknown package "%s"', pkg)
-			if not build_platforms(pkg)[platform] then return end --"buildable" filter
+			if not build_platforms(pkg)[platform] then return end --not buildable
 			glue.assert(installed_packages()[pkg], 'package not installed "%s"', pkg)
 			local deps = bin_deps(pkg, platform)
 			local dt = {}
