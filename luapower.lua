@@ -69,6 +69,8 @@ local memoize_permanent = glue.memoize
 --cache can be cleared for individual packages.
 local pkg_caches = {} --{func = {pkg = val}}
 local function memoize_package(func)
+	local info = debug.getinfo(func)
+	assert(not info.isvararg and info.nparams >= 1 and info.nparams <= 2)
 	return glue.memoize(func, glue.attr(pkg_caches, func))
 end
 
@@ -443,9 +445,9 @@ local function c_module_name(path)
 end
 
 local function module_name(path)
-	return 
-		lua_module_name(path) or 
-		dasl_module_name(path) or 
+	return
+		lua_module_name(path) or
+		dasl_module_name(path) or
 		c_module_name(path)
 end
 
@@ -803,13 +805,13 @@ local function modules_(package, should_be_module)
 end
 
 --tracked <module>.lua -> {module = path}
-modules = memoize_opt_package(function(package) 
-	return modules_(package, true) 
+modules = memoize_opt_package(function(package)
+	return modules_(package, true)
 end)
 
 --tracked <script>.lua -> {script = path}
 scripts = memoize_opt_package(function(package)
-	return modules_(package, false) 
+	return modules_(package, false)
 end)
 
 --tracked file -> {path = type}
@@ -839,7 +841,7 @@ end)
 local function module_parent_(package, mod)
 	local parent = parent_module_name(mod)
 	if not parent then return end
-	return modules(package)[parent] and parent 
+	return modules(package)[parent] and parent
 		or module_parent_(package, parent)
 end
 local module_parent = memoize_package(module_parent_)
@@ -983,7 +985,7 @@ bin_deps = memoize_package(function(package, platform)
 	platform = check_platform(platform)
 	local t = c_tags(package) and c_tags(package).dependencies
 	t = t and t[platform] or {}
-	--packages containing Lua/C modules have an implicit dependency 
+	--packages containing Lua/C modules have an implicit dependency
 	--on luajit on Windows.
 	if platform:find'^mingw' and has_luac_modules(package) then
 		t.luajit = true
