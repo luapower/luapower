@@ -23,6 +23,7 @@ local cfg = {
 		linux32 = true, linux64 = true,
 		osx32 = true, osx64 = true,
 	},
+	allow_update_db = true,
 	servers = ffi.os ~= 'Linux' and {
 		linux32 = {'86.105.182.2', '1994'},
 		linux64 = {'86.105.182.2', '1999'},
@@ -1192,7 +1193,8 @@ function clear_db(package, platform)
 	end
 end
 
-function update_db(package, platform0)
+function update_db(package, platform0, force)
+	if not force and not config'allow_update_db' then return end
 	clear_db(package, platform0)
 	local loop = require'socketloop'
 	for platform in glue.sortedpairs(config'servers') do
