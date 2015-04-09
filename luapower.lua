@@ -16,7 +16,7 @@ local luastate = require'luastate'
 
 local cfg = {
 	luapower_dir = '.',
-	git_base_dir = '_git',
+	git_base_dir = '.mgit',
 	oses = {mingw = true, linux = true, osx = true},
 	platforms = {
 		mingw32 = true, mingw64 = true,
@@ -24,21 +24,7 @@ local cfg = {
 		osx32 = true, osx64 = true,
 	},
 	allow_update_db = true,
-	servers = ffi.os ~= 'Linux' and {
-		linux32 = {'86.105.182.2', '1994'},
-		linux64 = {'86.105.182.2', '1999'},
-		mingw32 = {'86.105.182.2', '1995'},
-		mingw64 = {'86.105.182.2', '1996'},
-		osx32   = {'86.105.182.2', '1998'},
-		osx64   = {'86.105.182.2', '1997'},
-	} or {
-		linux32 = {'172.16.134.130'},
-		linux64 = {'127.0.0.1'},
-		mingw32 = {'172.16.134.131'},
-		mingw64 = {'172.16.134.133'},
-		osx32   = {'172.16.134.128', '19993'},
-		osx64   = {'172.16.134.128'},
-	},
+	servers = {},
 }
 
 function config(var, val)
@@ -635,7 +621,7 @@ end)
 --packages and their files
 ------------------------------------------------------------------------------
 
---_git/<name>.origin -> {name = true}
+--.mgit/<name>.origin -> {name = true}
 known_packages = memoize(function()
 	local t = {}
 	for f in dir(powerpath(config'git_base_dir')) do
@@ -645,7 +631,7 @@ known_packages = memoize(function()
 	return t
 end)
 
---_git/<name>/.git -> {name = true}
+--.mgit/<name>/.git -> {name = true}
 installed_packages = memoize(function()
 	local t = {}
 	for f, _, mode in dir(powerpath(config'git_base_dir')) do

@@ -247,8 +247,8 @@ local function help()
 		end
 	end
 	print''
-	print'The `package` arg defaults to the env var LUAPOWER_PACKAGE, as set'
-	print'by the `git` subshell, and if that is not set, it defaults to `--all`,'
+	print'The `package` arg defaults to the env var MULTIGIT_PACKAGE, as set'
+	print'by the `mgit` subshell, and if that is not set, it defaults to `--all`,'
 	print'which means that it applies to packages.'
 	print''
 end
@@ -267,7 +267,7 @@ local function package_arg(handler, package_required, package_invalid_ok)
 		if package == '--all' then
 			package = nil
 		else
-			package = package or os.getenv'LUAPOWER_PACKAGE'
+			package = package or os.getenv'MULTIGIT_PACKAGE'
 		end
 		assert_arg(package or not package_required, 'package required')
 		assert_arg(not package or package_invalid_ok or lp.installed_packages()[package],
@@ -318,7 +318,7 @@ local function init_actions()
 	add_action('help', '', 'this screen', help)
 
 	add_section'PACKAGES'
-	add_action('ls-cloned',   '', 'list installed packages', keys_lister(lp.installed_packages))
+	add_action('ls',          '', 'list installed packages', keys_lister(lp.installed_packages))
 	add_action('ls-all',      '', 'list all known package', keys_lister(lp.known_packages))
 	add_action('ls-uncloned', '', 'list not yet installed packages', keys_lister(lp.not_installed_packages))
 
@@ -336,8 +336,8 @@ local function init_actions()
 	add_action('tags',      '[package [module]]', 'module info', package_arg(list_mtags))
 	add_action('platforms', '[package]', 'supported platforms', package_arg(package_lister(lp.platforms, list_keys, enum_keys)))
 	add_action('ctags',     '[package]', 'C package info', package_arg(package_lister(lp.c_tags, list_ctags, enum_ctags)))
-	add_action('csrc-dir',  '[package]', 'C sources dir', package_arg(function(package) print(lp.csrc_dir(package)) end))
-	
+	add_action('csrc-dir',  '[package]', 'C sources dir', package_arg(package_lister(lp.csrc_dir)))
+
 	add_section'CHECKS'
 	add_action('check',        '[package]', 'run all consistency checks', package_arg(consistency_checks))
 	add_action('load-errors',  '[package] [platform]', 'list module load errors', kv_lister(lp.load_errors))
