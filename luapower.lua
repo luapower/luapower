@@ -8,15 +8,15 @@ setfenv(1, luapower)
 local lfs = require'lfs'
 local glue = require'glue'
 local ffi = require'ffi'
-local pp = require'pp'
+local pp = require'pp' --for save_db
 local libgit2 = ffi.os == 'OSX' and require'libgit2'
-local luastate = require'luastate'
+local luastate = require'luastate' --for tracking_state
 
 --config
 
 local cfg = {
 	luapower_dir = '.',
-	git_base_dir = '.mgit',
+	mgit_dir = '.mgit',
 	oses = {mingw = true, linux = true, osx = true},
 	platforms = {
 		mingw32 = true, mingw64 = true,
@@ -43,8 +43,8 @@ function powerpath(file)
 	return config'luapower_dir'..plusfile(file)
 end
 
-function gitpath(file)
-	return powerpath(config'git_base_dir'..plusfile(file))
+function mgitpath(file)
+	return powerpath(config'mgit_dir'..plusfile(file))
 end
 
 --memoize with total and partial cache invalidation
@@ -386,7 +386,7 @@ local function git_dir(package)
 	if package == 'luapower-git' then
 		return powerpath'.git'
 	end
-	return gitpath(package..'/.git')
+	return mgitpath(package..'/.git')
 end
 
 --git command string for a package repo
@@ -582,7 +582,7 @@ end
 
 --parse the table of contents file into a list of categories and docs.
 cats = memoize_package(function(package)
-	local more, close = assert(more(gitpath'cat.md'))
+	local more, close = assert(more(mgitpath'luapower-cat.md'))
 	local cats = {}
 	local lastcat
 	local misc
@@ -624,7 +624,7 @@ end)
 --.mgit/<name>.origin -> {name = true}
 known_packages = memoize(function()
 	local t = {}
-	for f in dir(powerpath(config'git_base_dir')) do
+	for f in dir(powerpath(config'mgit_dir')) do
 		local s = f:match'^(.-)%.origin$'
 		if s then t[s] = true end
 	end
@@ -634,7 +634,7 @@ end)
 --.mgit/<name>/.git -> {name = true}
 installed_packages = memoize(function()
 	local t = {}
-	for f, _, mode in dir(powerpath(config'git_base_dir')) do
+	for f, _, mode in dir(powerpath(config'mgit_dir')) do
 		if mode == 'directory'
 			and lfs.attributes(git_dir(f), 'mode') == 'directory'
 		then
