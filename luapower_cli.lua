@@ -126,7 +126,6 @@ function consistency_checks(package)
 	end
 	--package-specific checks (they also work with no package specified)
 	list_errors('undocumented packages', lp.undocumented_package(package))
-	list_errors('non-standard csrc dir', lp.nonstandard_csrc_dir(package))
 	list_errors('module load errors', lp.load_errors(package), list_kv)
 end
 
@@ -167,7 +166,6 @@ local function describe_package(package)
 	print(string.format('  %-20s: %s', 'tags', enum_values(lp.git_tags(package))))
 	print(string.format('  %-20s: %s', 'version', lp.git_version(package)))
 	print(string.format('  %-20s: %s', 'platforms:', enum_keys(lp.platforms(package))))
-	print(string.format('  %-20s: %s', 'csrc dir:', lp.csrc_dir(package) or ''))
 	print(string.format('  %-20s: %s', 'category:', lp.package_cat(package) or ''))
 
 	if next(lp.modules(package)) then
@@ -336,7 +334,6 @@ local function init_actions()
 	add_action('tags',      '[package [module]]', 'module info', package_arg(list_mtags))
 	add_action('platforms', '[package]', 'supported platforms', package_arg(package_lister(lp.platforms, list_keys, enum_keys)))
 	add_action('ctags',     '[package]', 'C package info', package_arg(package_lister(lp.c_tags, list_ctags, enum_ctags)))
-	add_action('csrc-dir',  '[package]', 'C sources dir', package_arg(package_lister(lp.csrc_dir)))
 
 	add_section'CHECKS'
 	add_action('check',        '[package]', 'run all consistency checks', package_arg(consistency_checks))

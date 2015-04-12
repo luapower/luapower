@@ -941,14 +941,9 @@ end)
 --package csrc info
 ------------------------------------------------------------------------------
 
-csrc_dir = memoize_package(function(package) --there should be only one csrc dir per package
-	--shortcut: csrc dir matches package name
+csrc_dir = memoize_package(function(package)
 	if lfs.attributes(powerpath('csrc/'..package), 'mode') == 'directory' then
 		return 'csrc/'..package
-	end
-	for path in pairs(tracked_files(package)) do
-		local dir = path:match'^(csrc/[^/]+)/'
-		if dir then return dir end
 	end
 end)
 
@@ -1612,16 +1607,6 @@ undocumented_package = memoize_opt_package(function(package)
 	local docs = docs(package)
 	if not docs[package] then
 		t[package] = true
-	end
-	return t
-end)
-
---check for csrc dir not matching package name
-nonstandard_csrc_dir = memoize_opt_package(function(package)
-	local t = {}
-	local dir = csrc_dir(package)
-	if dir and dir ~= 'csrc/'..package then
-		t[dir] = true
 	end
 	return t
 end)
