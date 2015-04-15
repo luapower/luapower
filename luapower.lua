@@ -1185,7 +1185,6 @@ function update_db_on_current_platform(package) --package is an optional filter
 	local platform = current_platform()
 	local data = get_tracking_data(package)
 	glue.update(glue.attr(db, platform), data)
-	require'pp'(db[platform])
 end
 
 function update_db(package, platform0) --package and platform0 are optional filters
