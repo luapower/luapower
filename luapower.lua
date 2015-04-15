@@ -22,9 +22,8 @@ local cfg = {
 		linux32 = true, linux64 = true,
 		osx32 = true, osx64 = true,
 	},
-	allow_update_db = true,
-	allow_update_db_current_platform = true,
 	servers = {},
+	auto_update_db = true,
 }
 
 function config(var, val)
@@ -1161,22 +1160,7 @@ function save_db()
 	check(os.rename(tmpfile, dbfile)) --atomic replace on POSIX
 end
 
-function clear_db(package, platform)
-	load_db()
-	if not platform then
-		for platform in pairs(db) do
-			clear_db(package, platform)
-		end
-		return
-	end
-	if not package then
-		db[platform] = nil
-	else
-		glue.attr(db, platform)[package] = nil
-	end
-end
-
-local function get_tracking_data(package)
+local function get_tracking_data(package) --package is an optional filter
 	local lp = require'luapower'
 	local glue = require'glue'
 	local t = {}
@@ -1196,28 +1180,20 @@ local function get_tracking_data(package)
 	return t
 end
 
-function update_db_current_platform(package)
-	if not package then
-		for package in pairs(installed_packages()) do
-			update_db_current_platform(package)
-		end
-		return
-	end
+function update_db_on_current_platform(package) --package is an optional filter
 	local platform = current_platform()
-	clear_db(package, platform)
 	local data = get_tracking_data(package)
 	glue.update(glue.attr(db, platform), data)
 end
 
-function update_db(package, platform0, force)
-	if not force and not config'allow_update_db' then return end
+function update_db(package, platform0) --package and platform0 are optional filters
 	local threads_started
 	for platform in pairs(config'platforms') do
-		if not platform0 or platform == platform0 then
+		if not platform0 or platform == platform0 then --apply platform0 filter
 			if platform == current_platform()
-				and config'allow_update_db_current_platform'
+				and not config('servers')[platforms] --servers are preferred
 			then
-				update_db_current_platform(package)
+				update_db_on_current_platform(package)
 			elseif config('servers')[platform] then
 				local loop = require'socketloop'
 				loop.newthread(function()
@@ -1246,7 +1222,12 @@ function track_module_platform(mod, package, platform)
 	platform = check_platform(platform)
 	package = package or module_package(mod)
 	load_db()
-	if not (db[platform] and db[platform][package] and db[platform][package][mod]) then
+	if not (
+			db[platform]
+			and db[platform][package]
+			and db[platform][package][mod]
+		) and config'auto_update_db'
+	then
 		update_db(package, platform)
 	end
 	return db[platform] and db[platform][package] and db[platform][package][mod] or {}
