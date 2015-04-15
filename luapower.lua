@@ -8,9 +8,8 @@ setfenv(1, luapower)
 local lfs = require'lfs'
 local glue = require'glue'
 local ffi = require'ffi'
-local pp = require'pp' --for save_db
+--TODO: either make libgit2 work on Windows XP or make popen work on OSX!
 local libgit2 = ffi.os == 'OSX' and require'libgit2'
-local luastate = require'luastate' --for tracking_state
 
 --config
 
@@ -240,6 +239,7 @@ local function install_trackers(builtin_modules, filter)
 end
 
 local tracking_state = memoize(function()
+	local luastate = require'luastate'
 	local state = luastate.open()
 	state:openlibs()
 	state:push(install_trackers)
@@ -1142,6 +1142,7 @@ end
 
 function save_db()
 	assert(db, 'db not loaded')
+	local pp = require'pp'
 	local dbfile = dbfile()
 	local tmpfile = dbfile..'.tmp' --make sure it's in the same filesystem
 	glue.writefile(tmpfile, coroutine.wrap(function()
