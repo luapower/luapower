@@ -1223,6 +1223,7 @@ end
 function track_module_platform(mod, package, platform)
 	platform = check_platform(platform)
 	package = package or module_package(mod)
+	glue.assert(package, 'package not found for module: "%s"', mod)
 	load_db()
 	if not (
 			db[platform]
