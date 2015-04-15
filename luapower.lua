@@ -230,7 +230,7 @@ local function install_trackers(builtin_modules, filter)
 			local ok, err = pcall(require, loader_m)
 			if not ok then --put the error on account of mod
 				dt[m] = {loaderr = err} --clear deps
-				return t
+				return dt[m]
 			end
 		end
 		pcall(require, m)
