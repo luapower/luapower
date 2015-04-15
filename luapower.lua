@@ -1198,7 +1198,7 @@ end
 
 function update_db_current_platform(package)
 	if not package then
-		for package in installed_packages() do
+		for package in pairs(installed_packages()) do
 			update_db_current_platform(package)
 		end
 		return
