@@ -245,7 +245,7 @@ local function help()
 		end
 	end
 	print''
-	print'The `package` arg defaults to the env var MULTIGIT_PACKAGE, as set'
+	print'The `package` arg defaults to the env var MULTIGIT_REPO, as set'
 	print'by the `mgit` subshell, and if that is not set, it defaults to `--all`,'
 	print'which means that it applies to packages.'
 	print''
@@ -265,7 +265,7 @@ local function package_arg(handler, package_required, package_invalid_ok)
 		if package == '--all' then
 			package = nil
 		else
-			package = package or os.getenv'MULTIGIT_PACKAGE'
+			package = package or os.getenv'MULTIGIT_REPO'
 		end
 		assert_arg(package or not package_required, 'package required')
 		assert_arg(not package or package_invalid_ok or lp.installed_packages()[package],
