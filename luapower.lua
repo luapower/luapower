@@ -1181,12 +1181,14 @@ local function get_tracking_data(package) --package is an optional filter
 end
 
 function update_db_on_current_platform(package) --package is an optional filter
+	load_db()
 	local platform = current_platform()
 	local data = get_tracking_data(package)
 	glue.update(glue.attr(db, platform), data)
 end
 
 function update_db(package, platform0) --package and platform0 are optional filters
+	load_db()
 	local threads_started
 	for platform in pairs(config'platforms') do
 		if not platform0 or platform == platform0 then --apply platform0 filter
