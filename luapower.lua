@@ -23,6 +23,7 @@ local cfg = {
 		osx32 = true, osx64 = true,
 	},
 	allow_update_db = true,
+	allow_update_db_current_platform = true,
 	servers = {},
 }
 
@@ -1175,50 +1176,70 @@ function clear_db(package, platform)
 	end
 end
 
-function update_db(package, platform0, force)
-	if not force and not config'allow_update_db' then return end
-	clear_db(package, platform0)
-	local loop = require'socketloop'
-	for platform in glue.sortedpairs(config'servers') do
-		if not platform0 or platform == platform0 then
-			loop.newthread(function()
-				local lp, err
-				if platform == current_platform() then
-					lp = luapower
-				else
-					lp, err = connect(platform)
-				end
-				if not lp then
-					print(platform..': '..err)
-					return
-				end
-				local data = lp.exec(function(package)
-					local lp = require'luapower'
-					local glue = require'glue'
-					local t = {}
-					if package then
-						local t = glue.attr(t, package)
-						for mod in pairs(lp.modules(package)) do
-							t[mod] = lp.track_module(mod, package)
-						end
-					else
-						for package in pairs(lp.installed_packages()) do
-							local t = glue.attr(t, package)
-							for mod in pairs(lp.modules(package)) do
-								t[mod] = lp.track_module(mod, package)
-							end
-						end
-					end
-					return t
-				end, package)
-				if platform ~= current_platform() then
-					lp.close()
-				end
-				glue.update(glue.attr(db, platform), data)
-			end)
+local function get_tracking_data(package)
+	local lp = require'luapower'
+	local glue = require'glue'
+	local t = {}
+	if package then
+		local t = glue.attr(t, package)
+		for mod in pairs(lp.modules(package)) do
+			t[mod] = lp.track_module(mod, package)
+		end
+	else
+		for package in pairs(lp.installed_packages()) do
+			local t = glue.attr(t, package)
+			for mod in pairs(lp.modules(package)) do
+				t[mod] = lp.track_module(mod, package)
+			end
 		end
 	end
-	loop.start(1)
+	return t
+end
+
+function update_db_current_platform(package)
+	if not package then
+		for package in installed_packages() do
+			update_db_current_platform(package)
+		end
+		return
+	end
+	local platform = current_platform()
+	clear_db(package, platform)
+	local data = get_tracking_data(package)
+	glue.update(glue.attr(db, platform), data)
+end
+
+function update_db(package, platform0, force)
+	if not force and not config'allow_update_db' then return end
+	local threads_started
+	for platform in pairs(config'platforms') do
+		if not platform0 or platform == platform0 then
+			if platform == current_platform()
+				and config'allow_update_db_current_platform'
+			then
+				update_db_current_platform(package)
+			elseif config('servers')[platform] then
+				local loop = require'socketloop'
+				loop.newthread(function()
+					local lp, err = connect(platform)
+					if lp then
+						local data = lp.exec(get_tracking_data, package)
+						lp.close()
+						glue.update(glue.attr(db, platform), data)
+					else
+						print(platform..': '..err)
+					end
+				end)
+				threads_started = true
+			else
+				print('no RPC server configured for '..platform)
+			end
+		end
+	end
+	if threads_started then
+		local loop = require'socketloop'
+		loop.start(1)
+	end
 end
 
 function track_module_platform(mod, package, platform)
