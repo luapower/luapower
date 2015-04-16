@@ -305,6 +305,22 @@ module_requires_parsed = memoize(function(m) --direct dependencies
 end)
 
 
+--comparison function for table.sort() for modules: sorts built-ins first.
+------------------------------------------------------------------------------
+
+function module_name_cmp(a, b)
+	if builtin_modules[a] == builtin_modules[b] or
+		luajit_builtin_modules[a] == luajit_builtin_modules[b]
+	then
+		--if a and be are in the same class, compare their names
+		return a < b
+	else
+		--compare classes (std. vs non-std. module)
+		return not (builtin_modules[b] or luajit_builtin_modules[b])
+	end
+end
+
+
 --filesystem reader
 ------------------------------------------------------------------------------
 
@@ -519,7 +535,7 @@ local function parse_what_file(what_file)
 			if s ~= '' then
 				local s1, ps = s:match'^([^%(]+)%s*%(%s*([^%)]+)%s*%)' --'pkg (platform1 ...)'
 				if ps then
-					s = s1
+					s = glue.trim(s1)
 					for platform in glue.gsplit(ps, '%s+') do
 						glue.attr(t.dependencies, platform)[s] = true
 					end
@@ -1210,7 +1226,7 @@ function update_db(package, platform0) --package and platform0 are optional filt
 				end)
 				threads_started = true
 			else
-				print('no RPC server configured for '..platform)
+				print('no RPC server for '..platform..' to get info about '..package)
 			end
 		end
 	end
@@ -1223,15 +1239,16 @@ end
 function track_module_platform(mod, package, platform)
 	platform = check_platform(platform)
 	package = package or module_package(mod)
-	glue.assert(package, 'package not found for module: "%s"', mod)
-	load_db()
-	if not (
-			db[platform]
-			and db[platform][package]
-			and db[platform][package][mod]
-		) and config'auto_update_db'
-	then
-		update_db(package, platform)
+	if package then
+		load_db()
+		if not (
+				db[platform]
+				and db[platform][package]
+				and db[platform][package][mod]
+			) and config'auto_update_db'
+		then
+			update_db(package, platform)
+		end
 	end
 	return db[platform] and db[platform][package] and db[platform][package][mod] or {}
 end
@@ -1319,14 +1336,9 @@ end)
 --indirect module dependencies
 ------------------------------------------------------------------------------
 
-local function callback(cb)
-	return rawget(luapower, cb) or cb
-end
-
 --given a dependency-getting function, get a module's dependencies
 --recursively, as a table's keys.
-function module_requires_recursive_keys_for(deps_func)
-	local deps_func = callback(deps_func)
+local function module_requires_recursive_keys_for(deps_func)
 	return memoize(function(mod, package, platform)
 		local t = {}
 		local function add_deps(mod, package, platform)
@@ -1344,8 +1356,7 @@ end
 
 --given a dependency-getting function, get a module's dependencies
 --recursively, as a tree.
-function module_requires_recursive_tree_for(deps_func)
-	local deps_func = callback(deps_func)
+local function module_requires_recursive_tree_for(deps_func)
 	return memoize(function(mod, package, platform)
 		local function add_deps(pnode, package, platform)
 			for dep in pairs(deps_func(pnode.name, package, plaform)) do
@@ -1357,26 +1368,6 @@ function module_requires_recursive_tree_for(deps_func)
 			return pnode
 		end
 		return add_deps({name = mod}, package, platform)
-	end)
-end
-
---given a dependency-getting function, get modules that depend on a module
---recursively, as a teble's keys.
-function module_required_recursive_keys_for(deps_func)
-	local deps_func = callback(deps_func)
-	return memoize(function(mod, package0, platform)
-		local t = {}
-		package0 = package0 or module_package(mod)
-		for package in pairs(installed_packages()) do
-			if package ~= package0 then --not of self
-				for dmod in pairs(modules(package)) do
-					if deps_func(dmod, package, platform)[mod] then
-						t[dmod] = true
-					end
-				end
-			end
-		end
-		return t
 	end)
 end
 
@@ -1404,24 +1395,6 @@ module_requires_loadtime_ext = memoize(function(mod, package, platform)
 	return filter(t, function(mod) return not internal[mod] end)
 end)
 
---all modules that depend on a module
-module_required_loadtime_all = module_required_recursive_keys_for(module_requires_loadtime)
-module_required_alltime_all  = module_required_recursive_keys_for(module_requires_alltime)
-
-
---indirect ffi dependencies
-------------------------------------------------------------------------------
-
---given a dependency-getting funtion, get a module's ffi dependencies.
-function module_requires_ffi_for(deps_func, mod, package, platform)
-	local deps_func = callback(deps_func)
-	local t = glue.update({}, module_requires_loadtime_ffi(mod, package, platform))
-	for mod in pairs(deps_func(mod, package, platform)) do
-		glue.update(t, module_requires_loadtime_ffi(mod, nil, platform))
-	end
-	return t
-end
-
 
 --indirect package dependencies
 ------------------------------------------------------------------------------
@@ -1431,7 +1404,7 @@ bin_deps_all = memoize_opt_package(function(package, platform)
 	local t = {}
 	local function add_deps(package)
 		for dep in pairs(bin_deps(package, platform)) do
-			if not t[dep] then
+			if not t[dep] then --skip cycles
 				t[dep] = true
 				add_deps(dep)
 			end
@@ -1441,36 +1414,58 @@ bin_deps_all = memoize_opt_package(function(package, platform)
 	return t
 end)
 
---package deps for a single module, for a module dependency-getting func.
-function module_requires_packages_for(module_deps_func, mod, package, platform, add_bin_deps)
-	local module_deps_func = callback(module_deps_func)
-	package = package or module_package(mod)
-	local deps = {}
-	for mod in pairs(module_deps_func(mod, package, platform)) do
-		local dep_package = modules(package)[mod] and package or module_package(mod)
-		if dep_package and dep_package ~= package then
-			deps[dep_package] = true
-			if add_bin_deps then
-				glue.update(deps, bin_deps_all(dep_package, platform))
+
+--reverse dependencies
+------------------------------------------------------------------------------
+
+--given a dependency-getting function, get the modules and packages
+--that depend on a module.
+local function module_required_for(deps_func, add_rev_bin_deps)
+	return memoize(function(mod, package0, platform)
+		local t = {}
+		local pt = {}
+		package0 = package0 or module_package(mod)
+		for package in pairs(installed_packages()) do
+			if package ~= package0 then --not of self
+				for dmod in pairs(modules(package)) do
+					if deps_func(dmod, package, platform)[mod] then
+						t[dmod] = true
+						pt[package] = true
+					end
+				end
 			end
 		end
-	end
-	if add_bin_deps then
-		glue.update(deps, bin_deps_all(package, platform))
-	end
-	return deps
+		if add_rev_bin_deps then
+			glue.update(pt, rev_bin_deps_all(package0, platform))
+		end
+		return t, pt
+	end)
 end
 
---combined package dependencies of all modules of a package
-function package_requires_packages_for(mdeps_func, package, platform, add_bin_deps)
-	mdeps_func = callback(mdeps_func)
-	local pdeps = {}
-	for mod in pairs(modules(package)) do
-		glue.update(pdeps, module_requires_packages_for(mdeps_func, mod,
-			package, platform, add_bin_deps))
-	end
-	return pdeps
+--all modules and packages that depend on a module, directly and indirectly.
+module_required_loadtime     = module_required_for(module_requires_loadtime)
+module_required_alltime      = module_required_for(module_requires_alltime)
+module_required_loadtime_all = module_required_for(module_requires_loadtime_all)
+module_required_alltime_all  = module_required_for(module_requires_alltime_all)
+
+--given a package dependency-getting function, get packages that depend on a package.
+local function package_required_for(deps_func)
+	return memoize(function(package0, platform)
+		local t = {}
+		for package in pairs(installed_packages()) do
+			if package ~= package0 then --not of self
+				if deps_func(package, platform)[package0] then
+					t[package] = true
+				end
+			end
+		end
+		return t
+	end)
 end
+
+--which packages is a package a binary dependency of.
+rev_bin_deps     = package_required_for(bin_deps)
+rev_bin_deps_all = package_required_for(bin_deps_all)
 
 
 --analytic info
@@ -1628,21 +1623,6 @@ load_errors = memoize_opt_package(function(package, platform)
 	end
 	return errs
 end)
-
-
---comparison function for table.sort() for modules: sorts built-ins first.
-
-function module_name_cmp(a, b)
-	if builtin_modules[a] == builtin_modules[b] or
-		luajit_builtin_modules[a] == luajit_builtin_modules[b]
-	then
-		--if a and be are in the same class, compare their names
-		return a < b
-	else
-		--compare classes (std. vs non-std. module)
-		return not (builtin_modules[b] or luajit_builtin_modules[b])
-	end
-end
 
 
 --use remotely via rpc server

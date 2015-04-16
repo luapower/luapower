@@ -129,27 +129,25 @@ function consistency_checks(package)
 	list_errors('module load errors', lp.load_errors(package), list_kv)
 end
 
-local function add_bin_deps(cmd)
-	return cmd:find'^d-load' or cmd:find'^d-alltime'
-end
-
 local d_commands = {
-	'd-load',        'module_requires_loadtime', 'load-time requires',
-	'd-autoload',    'module_autoloaded', 'autoloaded requires',
-	'd-runtime',     'module_requires_runtime', 'runtime requires',
-	'd-alltime',     'module_requires_alltime', 'load-time + runtime + autoloaded requires',
-	'd-load-all',    'module_requires_loadtime_all', 'load-time direct + indirect requires',
-	'd-alltime-all', 'module_requires_alltime_all', 'all-time direct + indirect requires',
-	'd-load-int',    'module_requires_loadtime_int', 'load-time internal (same package) requires',
-	'd-load-ext',    'module_requires_loadtime_ext', 'load-time direct-external requires',
-	'd-rev-load',    'module_required_loadtime_all', 'all modules that require a module at load-time',
-	'd-rev-alltime', 'module_required_alltime_all', 'all modules that require a module at all-time',
+	'd-loadtime',         'module_requires_loadtime', 'load-time requires',
+	'd-autoload',         'module_autoloaded', 'autoloaded requires',
+	'd-runtime',          'module_requires_runtime', 'runtime requires',
+	'd-alltime',          'module_requires_alltime', 'load-time + runtime + autoloaded requires',
+	'd-loadtime-all',     'module_requires_loadtime_all', 'load-time direct + indirect requires',
+	'd-alltime-all',      'module_requires_alltime_all', 'all-time direct + indirect requires',
+	'd-loadtime-int',     'module_requires_loadtime_int', 'load-time internal (same package) requires',
+	'd-loadtime-ext',     'module_requires_loadtime_ext', 'load-time direct-external requires',
+	'd-rev-loadtime',     'module_required_loadtime', 'reverse direct load-time requires',
+	'd-rev-alltime',      'module_required_alltime', 'reverse direct all-time requires',
+	'd-rev-loadtime-all', 'module_required_loadtime_all', 'reverse direct + indirect load-time requires',
+	'd-rev-alltime-all',  'module_required_alltime_all', 'reverse direct + indirect all-time requires',
 }
 
 --generate a nice markdown page for a package
-local function describe_package(package)
+local function describe_package(package, platform)
 
-	local llp = require'luapower' --local luapower API
+	local llp = require'luapower' --local module, not rpc
 
 	local function h(s)
 		print''
@@ -173,8 +171,8 @@ local function describe_package(package)
 		llp.walk_tree(lp.module_tree(package), function(node, level)
 			local mod = node.name
 			local mt = lp.module_tags(package, mod)
-			local err = lp.module_load_error(mod, package)
-			local deps = lp.module_requires_loadtime_ext(mod, package)
+			local err = lp.module_load_error(mod, package, platform)
+			local deps = lp.module_requires_loadtime_ext(mod, package, platform)
 			local flags = (mt.test_module and 'T' or '') .. (mt.demo_module and 'D' or '')
 			print(string.format('%-30s %-8s %-4s %s',
 				('  '):rep(level) .. '  ' .. mod, mt.lang, flags,
@@ -184,16 +182,30 @@ local function describe_package(package)
 		h'Dependencies'
 		for i=1,#d_commands,3 do
 			local cmd = d_commands[i]
-			local module_deps_func = d_commands[i+1]
-			local add_bin_deps = add_bin_deps(cmd)
-			local t = lp.package_requires_packages_for(module_deps_func,
-				package, nil, add_bin_deps)
+			local deps_func = d_commands[i+1]
+			local t = lp.exec(function(package, platform, deps_func)
+				local lp = require'luapower'
+				local t = {}
+				for mod in pairs(lp.modules(package)) do
+					for mod in pairs(lp[deps_func](mod, package, platform)) do
+						local pkg = lp.module_package(mod)
+						if pkg then
+							t[pkg] = true
+						end
+					end
+				end
+				return t
+			end, package, platform, deps_func)
 			print(string.format('  %-20s: %s', cmd, enum_keys(t)))
 		end
 		print(string.format('  %-20s: %s', 'd-bin',
-			enum_keys(lp.bin_deps(package))))
+			enum_keys(lp.bin_deps(package, platform))))
 		print(string.format('  %-20s: %s', 'd-bin-all',
-			enum_keys(lp.bin_deps_all(package))))
+			enum_keys(lp.bin_deps_all(package, platform))))
+		print(string.format('  %-20s: %s', 'd-rev-bin',
+			enum_keys(lp.rev_bin_deps(package, platform))))
+		print(string.format('  %-20s: %s', 'd-rev-bin-all',
+			enum_keys(lp.rev_bin_deps_all(package, platform))))
 	end
 
 	if next(lp.scripts(package)) then
@@ -280,20 +292,37 @@ for i=1,#d_commands,3 do
 end
 
 local function ffis_of_d_command(cmd, mod, platform)
-	local module_deps_func = assert(dmap[cmd], 'invalid d-... command')
-	return lp.module_requires_ffi_for(module_deps_func, mod, nil, platform, add_bin_deps(cmd))
+	local deps_func = assert(dmap[cmd], 'invalid d-... command')
+	local t = {}
+	glue.update(t, lp.module_requires_loadtime_ffi(mod, nil, platform))
+	for mod in pairs(lp[deps_func](mod, nil, platform)) do
+		glue.update(t, lp.module_requires_loadtime_ffi(mod, nil, platform))
+	end
+	return t
 end
 
 local function packages_of_d_command(cmd, mod, platform)
-	local module_deps_func = assert(dmap[cmd], 'invalid d-... command')
-	return lp.module_requires_packages_for(module_deps_func, mod, nil, platform, add_bin_deps(cmd))
+	local deps_func = assert(dmap[cmd], 'invalid d-... command')
+	return lp.exec(function(deps_func, mod, platform)
+		local lp = require'luapower'
+		local t = {}
+		for mod in pairs(lp[deps_func](mod, nil, platform)) do
+			local pkg = lp.module_package(mod)
+			if pkg then
+				t[pkg] = true
+			end
+		end
+		return t
+	end, deps_func, mod, platform)
 end
 
 local function packages_of_d_command_combined(cmd, pkg, platform)
-	local module_deps_func = assert(dmap[cmd], 'invalid d-... command')
-	local add_bin_deps = add_bin_deps(cmd)
-	return lp.package_requires_packages_for(module_deps_func, pkg, platform,
-		add_bin_deps)
+	local pkgs = {}
+	for mod in pairs(lp.modules(pkg)) do
+		local t = packages_of_d_command(cmd, mod, platform)
+		glue.update(pkgs, t)
+	end
+	return pkgs
 end
 
 local function start_server(v, ip, port)
@@ -321,7 +350,7 @@ local function init_actions()
 	add_action('ls-uncloned', '', 'list not yet installed packages', keys_lister(lp.not_installed_packages))
 
 	add_section'PACKAGE INFO'
-	add_action('describe',  '<package>', 'describe a package', package_arg(describe_package, true))
+	add_action('describe',  '<package> [platform]', 'describe a package', package_arg(describe_package, true))
 	add_action('type',      '[package]', 'package type', package_arg(package_lister(lp.package_type)))
 	add_action('version',   '[package]', 'current git version', package_arg(package_lister(lp.git_version)))
 	add_action('tags',      '[package]', 'git tags', package_arg(package_lister(lp.git_tags, list_values, enum_values)))
@@ -340,24 +369,31 @@ local function init_actions()
 	add_action('load-errors',  '[package] [platform]', 'list module load errors', kv_lister(lp.load_errors))
 
 	add_section'DEPENDENCIES'
-	add_action('d-load-tree',    '<module>', 'load-time require tree', tree_lister(lp.module_requires_loadtime_tree))
+	add_action('d-load-tree',    '          <module>', 'load-time require tree', tree_lister(lp.module_requires_loadtime_tree))
 	for i=1,#d_commands,3 do
 		local func = lp[d_commands[i+1]]
 		local function wrapper(mod, platform)
 			return func(mod, nil, platform) --package inferred
 		end
-		add_action(d_commands[i], ' <module> [platform]', d_commands[i+2], keys_lister(wrapper))
+		add_action(d_commands[i],
+			string.rep(' ', 20 - #d_commands[i])..' <module> [platform]',
+			d_commands[i+2], keys_lister(wrapper))
 	end
-	add_action('d-bin',          '[package]', 'direct binary dependencies', package_arg(package_lister(lp.bin_deps, list_keys, enum_keys)))
-	add_action('d-bin-all',      '[package]', 'direct+indirect binary dependencies', package_arg(package_lister(lp.bin_deps_all, list_keys, enum_keys)))
-	add_action('ffi-of',         'd-... <module> [platform]', 'ffi.loads of a list of module dependencies', keys_lister(ffis_of_d_command))
-	add_action('packages-of',    'd-... <module> [platform]', 'packages of a list of module dependencies', keys_lister(packages_of_d_command))
+
+	add_action('ffi-of',         '         d-... <module> [platform]', 'ffi.loads of a list of module dependencies', keys_lister(ffis_of_d_command))
+	add_action('packages-of',    '    d-... <module> [platform]', 'packages of a list of module dependencies', keys_lister(packages_of_d_command))
 	add_action('packages-of-all','d-... [package] [platform]', 'combined package depedencies for all modules',
 			function(cmd, pkg, platform)
 				package_arg(package_lister(function(pkg, platform)
 						return packages_of_d_command_combined(cmd, pkg, platform)
 					end, list_keys, enum_keys))(pkg, platform)
 			end)
+
+	add_action('d-bin',          '[package]', 'direct binary dependencies', package_arg(package_lister(lp.bin_deps, list_keys, enum_keys)))
+	add_action('d-bin-all',      '[package]', 'direct + indirect binary dependencies', package_arg(package_lister(lp.bin_deps_all, list_keys, enum_keys)))
+	add_action('d-rev-bin',      '[package]', 'reverse direct binary dependencies', package_arg(package_lister(lp.rev_bin_deps, list_keys, enum_keys)))
+	add_action('d-rev-bin-all',  '[package]', 'direct + indirect binary dependencies', package_arg(package_lister(lp.rev_bin_deps_all, list_keys, enum_keys)))
+
 	add_action('build-order',       '[package1,...] [platform]', 'build order',
 		package_arg(values_lister(lp.build_order), nil, true))
 
@@ -407,7 +443,7 @@ end
 if server or port then
 	local loop = require'socketloop'
 	loop.newthread(function()
-		lp = lp.connect(server, port)
+		lp = assert(lp.connect(server, port))
 		run(unpack(t))
 		lp.close()
 	end)
