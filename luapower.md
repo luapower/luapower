@@ -9,9 +9,9 @@ aggregate metadata about packages, modules and documentation and perform
 various consistency checks. It gives accurate information about dependencies
 between modules and packages because it actually loads the Lua modules and
 tracks all `require` and `ffi.load` calls, and then it integrates that
-information with the package information that it gets from git. The entire
-API is memoized so it can be abused without worrying about caching the
-results of the function calls.
+information with the package information that it gets from git and multigit.
+The entire API is memoized so it can be abused without worrying about
+caching the results of the function calls.
 
 Accompanying the library there's a command-line interface and an RPC server
 which can be used to track module dependencies across multiple platforms,
@@ -19,7 +19,8 @@ run automated tests, etc.
 
 ## Module usage
 
-First, you might need to say where the luapower tree is (the default path is '.'):
+The module assumes that the luapower tree is at the current directory.
+If that's not the case, you have say where it is:
 
 	lp.config('luapower_dir', '/path/to/luapower')
 
@@ -27,7 +28,7 @@ The API can be categorized based on the different types of things it does:
 
   1. getting info about packages and modules in the luapower tree - this is
   the bulk of the API.
-  2. starting an RPC server/connecting to an RPC server and use the API
+  2. starting an RPC server/connecting to an RPC server and using the API
   remotely, in order to collect data from different platforms.
   3. creating/updating a small database (luapower_db.lua) containing module
   dependencies collected from different platforms.
@@ -44,7 +45,7 @@ are documented in the code instead, so check that out.
 
 The command to start an RPC server is:
 
-	$ ./luajit luapower_rpc.lua [bind-ip] [port]
+	$ ./luajit luapower_rpc.lua [IP] [PORT]
 
 To connect to an RPC server, do:
 
@@ -60,12 +61,12 @@ To update the dependency database, do:
 
 	lp.update_db([package], [platform])
 
-Passing nil as package updates all the packages, same with the platform (so
-not passing any args updates the whole db). For this to work, you have to
-start an RPC server for each platform, and tell luapower where all those
+Passing nil as package updates all the packages, same with the platform
+(so not passing any args updates the whole db). For this to work, you have
+to start an RPC server for each platform, and tell luapower where all those
 servers are (see the config table). Needless to say, all servers need to
 maintain a copy of the luapower tree which you have to keep synchronized
-somehow (NFS, git, rsync, etc.).
+somehow (NFS, samba, git, rsync, etc.).
 
 ## Command line
 
@@ -73,5 +74,5 @@ Finally, for the command-line, type:
 
 	$ ./luapower
 
-The cli also serves as the test unit and demo for the library, so check that
-out too.
+The cli also serves as the test unit and demo for the library,
+so check that out too.

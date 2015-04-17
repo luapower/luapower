@@ -116,10 +116,78 @@ local function enum_ctags(t)
 		t.realname, t.version, t.license, t.url)
 end
 
---command handlers
+--command actions
 ------------------------------------------------------------------------------
 
-function consistency_checks(package)
+local actions
+local action_list
+
+local function add_action(name, args, info, handler)
+	local action = {name = name, args = args, info = info, handler = handler}
+	actions[name] = action
+	action_list[#action_list+1] = action
+end
+
+local function add_section(title)
+	action_list[#action_list+1] = {title = title}
+end
+
+local function assert_arg(ok, ...)
+	if ok then return ok,... end
+	print''
+	print('ERROR: '..(...))
+	print''
+	os.exit(1)
+end
+
+--wrapper for command handlers that take <package> as arg#1 -- provides its default value.
+local function package_arg(handler, package_required, package_invalid_ok)
+	return function(package, ...)
+		if package == '--all' then
+			package = nil
+		else
+			package = package or os.getenv'MULTIGIT_REPO'
+		end
+		assert_arg(package or not package_required, 'package required')
+		assert_arg(not package or package_invalid_ok or lp.installed_packages()[package],
+			'unknown package '..tostring(package))
+		return handler(package, ...)
+	end
+end
+
+local function help()
+	print''
+	print(string.format('USAGE: luapower [-s|--server IP|NAME] [-p|--port PORT] COMMAND ...', arg[0]))
+	for i,t in ipairs(action_list) do
+		if t.name then
+			print(string.format('   %-30s %s', t.name .. ' ' .. t.args, t.info))
+		elseif t.title then
+			print''
+			print(t.title)
+			print''
+		end
+	end
+print''
+print'NOTES'
+print''
+print'   The MODULE arg can be `modules-of-PACKAGE`, which results in the combined'
+print'   list of dependencies for all modules of PACKAGE.'
+print''
+print'   The PACKAGE arg defaults to the env var MULTIGIT_REPO, as set by the `mgit`'
+print'   subshell, and if that is not set, and the PACKAGE arg is optional, then it'
+print'   defaults to `--all`, which means that it applies to all packages.'
+print''
+print'   Example:'
+print''
+print('       ./luapower packages-of d-alltime-all modules-of-winapi mingw32')
+print''
+print'   will return the packages of direct + indirect (all) loadtime + runtime'
+print'   + autoloaded (alltime) module dependencies of all modules of package '
+print'   "winapi" that were recorded on the mingw32 platform.'
+print''
+end
+
+local function consistency_checks(package)
 	--global checks, only enabled if package is not specified
 	if not package then
 		list_errors('duplicate docs', lp.duplicate_docs())
@@ -143,6 +211,64 @@ local d_commands = {
 	'd-rev-loadtime-all', 'module_required_loadtime_all', 'reverse direct + indirect load-time requires',
 	'd-rev-alltime-all',  'module_required_alltime_all', 'reverse direct + indirect all-time requires',
 }
+
+local dmap = {}
+for i=1,#d_commands,3 do
+	local cmd, func_name = d_commands[i], d_commands[i+1]
+	dmap[cmd] = func_name
+end
+
+local function d_command(cmd, ...)
+	local of, mod, platform
+	if cmd == 'packages-of' or cmd == 'ffi-of' then
+		of, cmd, mod, platform = cmd, ...
+	else
+		mod, platform = ...
+	end
+	local func_name = assert_arg(dmap[cmd], 'invalid d-... command')
+	local pkg = mod:match'^modules%-of%-(.*)'
+	assert_arg(not pkg or lp.installed_packages()[pkg], 'invalid package '..tostring(pkg))
+
+	return lp.exec(function(func_name, of, pkg, mod, platform)
+		local func = lp[func_name]
+		local t
+		if pkg then
+			t = {}
+			for mod in pairs(lp.modules(pkg)) do
+				glue.update(t, func(mod, pkg, platform))
+			end
+		else
+			 t = func(mod, nil, platform) --package inferred
+		end
+		if of then
+			local mt = t
+			t = {}
+			if of == 'packages-of' then
+				--convert to packages of result
+				for mod in pairs(mt) do
+					local dpkg = lp.module_package(mod)
+					if dpkg and dpkg ~= pkg then --exclude self
+						t[dpkg] = true
+					end
+				end
+			elseif of == 'ffi-of' then
+				--add ffis of arg
+				if pkg then
+					for mod in pairs(lp.modules(pkg)) do
+						glue.update(t, lp.module_requires_loadtime_ffi(mod, pkg, platform))
+					end
+				else
+					glue.update(t, lp.module_requires_loadtime_ffi(mod, nil, platform))
+				end
+				--add ffis of result
+				for mod in pairs(mt) do
+					glue.update(t, lp.module_requires_loadtime_ffi(mod, nil, platform))
+				end
+			end
+		end
+		return t
+	end, func_name, of, pkg, mod, platform)
+end
 
 --generate a nice markdown page for a package
 local function describe_package(package, platform)
@@ -182,20 +308,7 @@ local function describe_package(package, platform)
 		h'Dependencies'
 		for i=1,#d_commands,3 do
 			local cmd = d_commands[i]
-			local deps_func = d_commands[i+1]
-			local t = lp.exec(function(package, platform, deps_func)
-				local lp = require'luapower'
-				local t = {}
-				for mod in pairs(lp.modules(package)) do
-					for mod in pairs(lp[deps_func](mod, package, platform)) do
-						local pkg = lp.module_package(mod)
-						if pkg then
-							t[pkg] = true
-						end
-					end
-				end
-				return t
-			end, package, platform, deps_func)
+			local t = d_command('packages-of', cmd, 'modules-of-'..package, platform)
 			print(string.format('  %-20s: %s', cmd, enum_keys(t)))
 		end
 		print(string.format('  %-20s: %s', 'd-bin',
@@ -228,103 +341,6 @@ local function describe_package(package, platform)
 	print''
 end
 
---command dispatcher
-------------------------------------------------------------------------------
-
-local actions
-local action_list
-
-local function add_action(name, args, info, handler)
-	local action = {name = name, args = args, info = info, handler = handler}
-	actions[name] = action
-	action_list[#action_list+1] = action
-end
-
-local function add_section(title)
-	action_list[#action_list+1] = {title = title}
-end
-
-local function help()
-	print''
-	print(string.format('USAGE: luapower [-s|--server ip] [-p|--port port] <command> ...', arg[0]))
-	for i,t in ipairs(action_list) do
-		if t.name then
-			print(string.format('   %-30s %s', t.name .. ' ' .. t.args, t.info))
-		elseif t.title then
-			print''
-			print(t.title)
-			print''
-		end
-	end
-	print''
-	print'The `package` arg defaults to the env var MULTIGIT_REPO, as set'
-	print'by the `mgit` subshell, and if that is not set, it defaults to `--all`,'
-	print'which means that it applies to packages.'
-	print''
-end
-
-local function assert_arg(ok, ...)
-	if ok then return ok,... end
-	print''
-	print('ERROR: '..(...))
-	help()
-	os.exit(1)
-end
-
---wrapper for command handlers that take <package> as arg#1 -- provides its default value.
-local function package_arg(handler, package_required, package_invalid_ok)
-	return function(package, ...)
-		if package == '--all' then
-			package = nil
-		else
-			package = package or os.getenv'MULTIGIT_REPO'
-		end
-		assert_arg(package or not package_required, 'package required')
-		assert_arg(not package or package_invalid_ok or lp.installed_packages()[package],
-			'unknown package '..tostring(package))
-		return handler(package, ...)
-	end
-end
-
-local dmap = {}
-for i=1,#d_commands,3 do
-	dmap[d_commands[i]] = d_commands[i+1]
-end
-
-local function ffis_of_d_command(cmd, mod, platform)
-	local deps_func = assert(dmap[cmd], 'invalid d-... command')
-	local t = {}
-	glue.update(t, lp.module_requires_loadtime_ffi(mod, nil, platform))
-	for mod in pairs(lp[deps_func](mod, nil, platform)) do
-		glue.update(t, lp.module_requires_loadtime_ffi(mod, nil, platform))
-	end
-	return t
-end
-
-local function packages_of_d_command(cmd, mod, platform)
-	local deps_func = assert(dmap[cmd], 'invalid d-... command')
-	return lp.exec(function(deps_func, mod, platform)
-		local lp = require'luapower'
-		local t = {}
-		for mod in pairs(lp[deps_func](mod, nil, platform)) do
-			local pkg = lp.module_package(mod)
-			if pkg then
-				t[pkg] = true
-			end
-		end
-		return t
-	end, deps_func, mod, platform)
-end
-
-local function packages_of_d_command_combined(cmd, pkg, platform)
-	local pkgs = {}
-	for mod in pairs(lp.modules(pkg)) do
-		local t = packages_of_d_command(cmd, mod, platform)
-		glue.update(pkgs, t)
-	end
-	return pkgs
-end
-
 local function start_server(v, ip, port)
 	local loop = require'socketloop'
 	local rpc = require'luapower_rpc'
@@ -343,6 +359,7 @@ local function init_actions()
 
 	add_section'HELP'
 	add_action('help', '', 'this screen', help)
+	add_action('--help', '', 'this screen', help)
 
 	add_section'PACKAGES'
 	add_action('ls',          '', 'list installed packages', keys_lister(lp.installed_packages))
@@ -350,60 +367,50 @@ local function init_actions()
 	add_action('ls-uncloned', '', 'list not yet installed packages', keys_lister(lp.not_installed_packages))
 
 	add_section'PACKAGE INFO'
-	add_action('describe',  '<package> [platform]', 'describe a package', package_arg(describe_package, true))
-	add_action('type',      '[package]', 'package type', package_arg(package_lister(lp.package_type)))
-	add_action('version',   '[package]', 'current git version', package_arg(package_lister(lp.git_version)))
-	add_action('tags',      '[package]', 'git tags', package_arg(package_lister(lp.git_tags, list_values, enum_values)))
-	add_action('tag',       '[package]', 'current git tag', package_arg(package_lister(lp.git_tag)))
-	add_action('files',     '[package]', 'tracked files', package_arg(keys_lister(lp.tracked_files)))
-	add_action('docs',      '[package]', 'docs', package_arg(keys_lister(lp.docs)))
-	add_action('modules',   '[package]', 'modules', package_arg(keys_lister(lp.modules)))
-	add_action('scripts',   '[package]', 'scripts', package_arg(keys_lister(lp.scripts)))
-	add_action('tree',      '[package]', 'module tree', package_arg(tree_lister(lp.module_tree)))
-	add_action('tags',      '[package [module]]', 'module info', package_arg(list_mtags))
-	add_action('platforms', '[package]', 'supported platforms', package_arg(package_lister(lp.platforms, list_keys, enum_keys)))
-	add_action('ctags',     '[package]', 'C package info', package_arg(package_lister(lp.c_tags, list_ctags, enum_ctags)))
+	add_action('describe',   'PACKAGE [PLATFORM]', 'describe a package', package_arg(describe_package, true))
+	add_action('type',      '[PACKAGE]', 'package type', package_arg(package_lister(lp.package_type)))
+	add_action('version',   '[PACKAGE]', 'current git version', package_arg(package_lister(lp.git_version)))
+	add_action('tags',      '[PACKAGE]', 'git tags', package_arg(package_lister(lp.git_tags, list_values, enum_values)))
+	add_action('tag',       '[PACKAGE]', 'current git tag', package_arg(package_lister(lp.git_tag)))
+	add_action('files',     '[PACKAGE]', 'tracked files', package_arg(keys_lister(lp.tracked_files)))
+	add_action('docs',      '[PACKAGE]', 'docs', package_arg(keys_lister(lp.docs)))
+	add_action('modules',   '[PACKAGE]', 'modules', package_arg(keys_lister(lp.modules)))
+	add_action('scripts',   '[PACKAGE]', 'scripts', package_arg(keys_lister(lp.scripts)))
+	add_action('tree',      '[PACKAGE]', 'module tree', package_arg(tree_lister(lp.module_tree)))
+	add_action('tags',      '[PACKAGE [MODULE]]', 'module info', package_arg(list_mtags))
+	add_action('platforms', '[PACKAGE]', 'supported platforms', package_arg(package_lister(lp.platforms, list_keys, enum_keys)))
+	add_action('ctags',     '[PACKAGE]', 'C package info', package_arg(package_lister(lp.c_tags, list_ctags, enum_ctags)))
 
 	add_section'CHECKS'
-	add_action('check',        '[package]', 'run all consistency checks', package_arg(consistency_checks))
-	add_action('load-errors',  '[package] [platform]', 'list module load errors', kv_lister(lp.load_errors))
+	add_action('check',        '[PACKAGE]', 'run all consistency checks', package_arg(consistency_checks))
+	add_action('load-errors',  '[PACKAGE] [PLATFORM]', 'list module load errors', kv_lister(lp.load_errors))
 
 	add_section'DEPENDENCIES'
-	add_action('d-load-tree',    '          <module>', 'load-time require tree', tree_lister(lp.module_requires_loadtime_tree))
+	add_action('d-tree', '             MODULE [PLATFORM]', 'load-time require tree',
+		tree_lister(function(mod, platform) return lp.module_requires_loadtime_tree(mod, nil, platform) end))
 	for i=1,#d_commands,3 do
-		local func = lp[d_commands[i+1]]
-		local function wrapper(mod, platform)
-			return func(mod, nil, platform) --package inferred
-		end
-		add_action(d_commands[i],
-			string.rep(' ', 20 - #d_commands[i])..' <module> [platform]',
-			d_commands[i+2], keys_lister(wrapper))
+		local cmd, _, descr = unpack(d_commands, i, i+2)
+		add_action(cmd, string.rep(' ', 18 - #cmd)..' MODULE [PLATFORM]', descr, keys_lister(d_command))
 	end
+	add_action('ffi-of', '       d-... MODULE [PLATFORM]', 'ffi.loads of module dependencies',
+		keys_lister(function(...) return d_command('ffi-of', ...) end))
+	add_action('packages-of', '  d-... MODULE [PLATFORM]', 'packages of module dependencies',
+		keys_lister(function(...) return d_command('packages-of', ...) end))
 
-	add_action('ffi-of',         '         d-... <module> [platform]', 'ffi.loads of a list of module dependencies', keys_lister(ffis_of_d_command))
-	add_action('packages-of',    '    d-... <module> [platform]', 'packages of a list of module dependencies', keys_lister(packages_of_d_command))
-	add_action('packages-of-all','d-... [package] [platform]', 'combined package depedencies for all modules',
-			function(cmd, pkg, platform)
-				package_arg(package_lister(function(pkg, platform)
-						return packages_of_d_command_combined(cmd, pkg, platform)
-					end, list_keys, enum_keys))(pkg, platform)
-			end)
+	add_action('d-bin', '        [PACKAGE] [PLATFORM]', 'direct binary dependencies', package_arg(package_lister(lp.bin_deps, list_keys, enum_keys)))
+	add_action('d-bin-all', '    [PACKAGE] [PLATFORM]', 'direct + indirect binary dependencies', package_arg(package_lister(lp.bin_deps_all, list_keys, enum_keys)))
+	add_action('d-rev-bin', '    [PACKAGE] [PLATFORM]', 'reverse direct binary dependencies', package_arg(package_lister(lp.rev_bin_deps, list_keys, enum_keys)))
+	add_action('d-rev-bin-all', '[PACKAGE] [PLATFORM]', 'direct + indirect binary dependencies', package_arg(package_lister(lp.rev_bin_deps_all, list_keys, enum_keys)))
 
-	add_action('d-bin',          '[package]', 'direct binary dependencies', package_arg(package_lister(lp.bin_deps, list_keys, enum_keys)))
-	add_action('d-bin-all',      '[package]', 'direct + indirect binary dependencies', package_arg(package_lister(lp.bin_deps_all, list_keys, enum_keys)))
-	add_action('d-rev-bin',      '[package]', 'reverse direct binary dependencies', package_arg(package_lister(lp.rev_bin_deps, list_keys, enum_keys)))
-	add_action('d-rev-bin-all',  '[package]', 'direct + indirect binary dependencies', package_arg(package_lister(lp.rev_bin_deps_all, list_keys, enum_keys)))
-
-	add_action('build-order',       '[package1,...] [platform]', 'build order',
-		package_arg(values_lister(lp.build_order), nil, true))
+	add_action('build-order',    '[PACKAGE1,...] [PLATFORM]', 'build order', package_arg(values_lister(lp.build_order), nil, true))
 
 	add_section'RPC'
-	add_action('server',  '[-v] [ip [port]] | [platform]', 'start the RPC server', start_server)
+	add_action('server',  '[-v] [IP [PORT]] | [PLATFORM]', 'start the RPC server', start_server)
 	add_action('restart', '', 'restart a RPC server', lp.restart)
 	add_action('stop',    '', 'stop a RPC server', lp.stop)
 	add_action('platform','', 'report platform', function() print(lp.current_platform()) end)
 	add_action('os-arch','', 'report OS and arch', function() print(lp.osarch()) end)
-	add_action('server-status', '[platform]', 'show status of RPC servers',
+	add_action('server-status', '[PLATFORM]', 'show status of RPC servers',
 		function(platform)
 			for platform, t in glue.sortedpairs(lp.server_status()) do
 				print(platform, t.os or '', t.arch or '', t.err or '')
