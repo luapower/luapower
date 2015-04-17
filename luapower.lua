@@ -787,7 +787,7 @@ local function is_module(mod)
 end
 
 --tracked <doc>.md -> {doc = path}
-local docs = opt_package(memoize_package(function(package)
+docs = opt_package(memoize_package(function(package)
 	local t = {}
 	for path in pairs(tracked_files(package)) do
 		if is_doc_path(path) then
