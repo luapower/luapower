@@ -84,12 +84,35 @@ local function package_lister(handler, lister, enumerator)
 	end
 end
 
+local function enum_deps(deps_t)
+	local t = {}
+	--invert {platform = {dep=true}} to {dep = {platform = true}}
+	local platforms = {}
+	for pl, deps in pairs(deps_t) do
+		for dep in pairs(deps) do
+			local dt = glue.attr(platforms, dep)
+			dt[pl] = true
+		end
+	end
+	local maxpcount = glue.count(lp.config'platforms')
+	--for deps that are present on all platforms, show them simply,
+	--without listing the platforms, otherwise show `dep (platform1, ...)`
+	for dep, pt in glue.sortedpairs(platforms) do
+		if glue.count(pt) < maxpcount then
+			table.insert(t, dep..' ('..table.concat(glue.keys(pt, true), ', ')..')')
+		else
+			table.insert(t, dep)
+		end
+	end
+	return table.concat(t, ', ') -- `dep1 (platform1, ...), ...`
+end
+
 local function list_ctags(t)
 	print(string.format('  %-20s: %s', 'clib name', t.realname))
 	print(string.format('  %-20s: %s', 'clib version', t.version))
 	print(string.format('  %-20s: %s', 'release url', t.url))
 	print(string.format('  %-20s: %s', 'license', t.license))
-	print(string.format('  %-20s: %s', 'dependencies', enum_keys(t.dependencies)))
+	print(string.format('  %-20s: %s', 'dependencies', enum_deps(t.dependencies)))
 end
 
 local function list_mtags(package, mod)

@@ -1005,7 +1005,7 @@ bin_deps = memoize_package(function(package, platform)
 	--packages containing Lua/C modules have an _implicit_ binary
 	--dependency on luajit on Windows because they link against lua51.dll.
 	if platform:find'^mingw' and has_luac_modules(package) then
-		--t.luajit = true
+		t.luajit = true
 	end
 	return t
 end)
