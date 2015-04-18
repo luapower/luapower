@@ -423,7 +423,7 @@ end
 --git command string for a package repo
 local function gitp(package, args)
 	local git = ffi.os == 'Windows' and 'git.exe' or 'git'
-	return 'TZ=UTC '..git..' --git-dir="'..git_dir(package)..'" '..args
+	return git..' --git-dir="'..git_dir(package)..'" '..args
 end
 
 function git(package, cmd)
@@ -1118,7 +1118,7 @@ end or function(package)
 end)
 
 local function git_log_time(package, args)
-	local date = git(package, 'log -1 --format=%cd --date={iso,local} '..args)
+	local date = git(package, 'log -1 --format=%cd --date=iso '..args)
 	date = glue.trim(date)
 	local y,m,d,h,M,s = date:match'^(%d+)%-(%d+)%-(%d+) (%d+):(%d+):(%d+)'
 	return os.time{year = y, month = m, day = d, hour = h, min = M, sec = s}
