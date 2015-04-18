@@ -1118,7 +1118,7 @@ end or function(package)
 end)
 
 local function git_log_time(package, args)
-	local date = git(package, 'log -1 --format=%cd --date=iso '..args)
+	local date = git(package, 'log -1 --format=%cd --date={iso,local} '..args)
 	date = glue.trim(date)
 	local y,m,d,h,M,s = date:match'^(%d+)%-(%d+)%-(%d+) (%d+):(%d+):(%d+)'
 	return os.time{year = y, month = m, day = d, hour = h, min = M, sec = s}
