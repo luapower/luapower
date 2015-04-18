@@ -1118,10 +1118,7 @@ end or function(package)
 end)
 
 local function git_log_time(package, args)
-	local date = git(package, 'log -1 --format=%cd --date=iso '..args)
-	date = glue.trim(date)
-	local y,m,d,h,M,s = date:match'^(%d+)%-(%d+)%-(%d+) (%d+):(%d+):(%d+)'
-	return os.time{year = y, month = m, day = d, hour = h, min = M, sec = s}
+	return tonumber(glue.trim(git(package, 'log -1 --format=%at '..args)))
 end
 
 git_master_time = memoize_package(libgit2 and function(package)
