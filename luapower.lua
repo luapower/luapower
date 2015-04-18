@@ -1117,10 +1117,14 @@ end or function(package)
 	return git(package, 'config --get remote.origin.url')
 end)
 
-git_mtime = memoize_package(libgit2 and function(package, file)
-	--TODO: implement the file arg
-	--see https://github.com/libgit2/libgit2sharp/issues/89
-	if file then return end
+local function git_log_time(package, args)
+	local date = git(package, 'log -1 --format=%cd --date=iso '..args)
+	date = glue.trim(date)
+	local y,m,d,h,M,s = date:match'^(%d+)%-(%d+)%-(%d+) (%d+):(%d+):(%d+)'
+	return os.time{year = y, month = m, day = d, hour = h, min = M, sec = s}
+end
+
+git_master_time = memoize_package(libgit2 and function(package)
 	local repo = repo(package)
 	local ref = repo:ref_dwim'master'
 	local id = repo:ref_name_to_id(ref:name())
@@ -1130,12 +1134,23 @@ git_mtime = memoize_package(libgit2 and function(package, file)
 	ref:free()
 	repo:free()
 	return t
+end or function(package)
+	return git_log_time(package, '')
+end)
+
+git_file_time = memoize_package(libgit2 and function(package, file)
+	--TODO: implement the file arg
+	--see https://github.com/libgit2/libgit2sharp/issues/89
+	return os.time()
 end or function(package, file)
-	local date = git(package, 'log -1 --format=%cd --date=iso'..
-		(file and ' --follow \''..file..'\'' or ''))
-	date = glue.trim(date)
-	local y,m,d,h,M,s = date:match'^(%d+)%-(%d+)%-(%d+) (%d+):(%d+):(%d+)'
-	return os.time{year = y, month = m, day = d, hour = h, min = M, sec = s}
+	return git_log_time(package, '--follow \''..file..'\'')
+end)
+
+git_tag_time = memoize_package(libgit2 and function(package, tag)
+	--TODO: implement this
+	return os.time()
+end or function(package, tag)
+	return git_log_time(package, tag)
 end)
 
 
