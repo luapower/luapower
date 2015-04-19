@@ -1732,4 +1732,4 @@ end
 function restart() error'not connected' end
 function stop() error'not connected' end
 
-return luapower --
+return luapower
