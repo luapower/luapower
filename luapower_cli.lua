@@ -400,7 +400,7 @@ local function init_actions()
 	add_action('modules',   '[PACKAGE]', 'modules', package_arg(keys_lister(lp.modules)))
 	add_action('scripts',   '[PACKAGE]', 'scripts', package_arg(keys_lister(lp.scripts)))
 	add_action('tree',      '[PACKAGE]', 'module tree', package_arg(tree_lister(lp.module_tree)))
-	add_action('tags',      '[PACKAGE [MODULE]]', 'module info', package_arg(list_mtags))
+	add_action('mtags',     '[PACKAGE [MODULE]]', 'module info', package_arg(list_mtags))
 	add_action('platforms', '[PACKAGE]', 'supported platforms', package_arg(package_lister(lp.platforms, list_keys, enum_keys)))
 	add_action('ctags',     '[PACKAGE]', 'C package info', package_arg(package_lister(lp.c_tags, list_ctags, enum_ctags)))
 

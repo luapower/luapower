@@ -26,6 +26,7 @@ local cfg = {
 	},
 	servers = {},          --{platform = {'ip|host', port}}
 	auto_update_db = true, --update the db automatically when info is missing
+	allow_update_db_locally = true,
 }
 
 --get or set a config value
@@ -1249,6 +1250,7 @@ function update_db(package, platform0) --package and platform0 are optional filt
 		if not platform0 or platform == platform0 then --apply platform0 filter
 			if platform == current_platform()
 				and not config('servers')[platforms] --servers are preferred
+				and config'allow_update_db_locally' --allowed updating natively
 			then
 				update_db_on_current_platform(package)
 			elseif config('servers')[platform] then
@@ -1265,7 +1267,7 @@ function update_db(package, platform0) --package and platform0 are optional filt
 				end)
 				threads_started = true
 			else
-				print('no RPC server for '..platform..' to get info about '..package)
+				print('no RPC server for '..platform..(package and ' to get info about '..package or ''))
 			end
 		end
 	end
