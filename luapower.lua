@@ -1578,9 +1578,8 @@ function package_cat(pkg)
 	return packages_cats()[pkg]
 end
 
---given a list of packages, return a possible build order that assures
---that all the dependencies of any package are built before that package
---is to be built.
+--given a list of packages as a comma-separated string, return a possible
+--build order that assures that all the dependencies are built first.
 build_order = memoize(function(packages, platform)
 	platform = check_platform(platform)
 	local function input_packages()
