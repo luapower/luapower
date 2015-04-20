@@ -660,7 +660,7 @@ cats = memoize_package(function(package)
 			end
 		end
 	end
-	if not misc then
+	if not misc and next(uncat) then
 		table.insert(cats, {name = 'Misc', packages = glue.keys(uncat, true)})
 	end
 	close()
