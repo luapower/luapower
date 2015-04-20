@@ -1567,19 +1567,13 @@ end)
 
 --license can be specified in the .md file and the default can be configured.
 license = memoize_package(function(package)
-	local license
 	local tags = doc_tags(package, package)
-	return tags and tags.license or config'default_license'
-end)
-
---a package can contain a Lua binding and the underlying C library, and these
---can come under diff. licenses -- if so, show them both: 'LIC1; LIC2'.
-combined_license = memoize_package(function(package)
-	local ctags = c_tags(package)
-	local c_license = ctags and (ctags.license or config'default_license')
-	local p_license = license(pkg)
-	return c_license and p_license ~= c_license
-		and p_license..'; '..c_license or p_license
+	local license = tags and tags.license
+	if not license then
+		local ctags = c_tags(package)
+		license = ctags and ctags.license
+	end
+	return license or config'default_license'
 end)
 
 --pkg -> cat map

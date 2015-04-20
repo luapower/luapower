@@ -312,8 +312,9 @@ local function describe_package(package, platform)
 	print(string.format('  %-20s: %s', 'tag', lp.git_tag(package)))
 	print(string.format('  %-20s: %s', 'tags', enum_values(lp.git_tags(package))))
 	print(string.format('  %-20s: %s', 'version', lp.git_version(package)))
-	print(string.format('  %-20s: %s', 'platforms:', enum_keys(lp.platforms(package))))
-	print(string.format('  %-20s: %s', 'category:', lp.package_cat(package) or ''))
+	print(string.format('  %-20s: %s', 'license', lp.license(package)))
+	print(string.format('  %-20s: %s', 'platforms', enum_keys(lp.platforms(package))))
+	print(string.format('  %-20s: %s', 'category', lp.package_cat(package) or ''))
 
 	if next(lp.modules(package)) then
 		h'Modules'
