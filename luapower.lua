@@ -27,6 +27,7 @@ local cfg = {
 	servers = {},          --{platform = {'ip|host', port}}
 	auto_update_db = true, --update the db automatically when info is missing
 	allow_update_db_locally = true,
+	default_license = 'PD', --public domain
 }
 
 --get or set a config value
@@ -376,6 +377,21 @@ local function split_path(path)
 	return path:sub(1, n), filename
 end
 
+--open a file and return a give-me-the-next-line function and a close function.
+function more(filename)
+	local f, err = io.open(filename, r)
+	if not f then return nil, err end
+	local function more()
+		local s = f:read'*l'
+		if not s then f:close(); f = nil end
+		return s
+	end
+	local function close()
+		if f then f:close() end
+	end
+	return more, close
+end
+
 
 --git command output readers
 ------------------------------------------------------------------------------
@@ -623,7 +639,8 @@ cats = memoize_package(function(package)
 	local cats = {}
 	local lastcat
 	local misc
-	local pkgs = installed_packages()
+	local pkgs = filter(installed_packages(),
+		function(pkg) return known_packages()[pkg] end)
 	local uncat = glue.update({}, pkgs)
 	for s in more do
 		local pkg = s:match'^%s*%*%s*%[([^%]]+)%]%s*$' -- " * [name]"
@@ -733,21 +750,6 @@ end or function(package)
 	end
 	return t
 end)
-
---open a file and return a give-me-the-next-line function and a close function.
-function more(filename)
-	local f, err = io.open(filename, r)
-	if not f then return nil, err end
-	local function more()
-		local s = f:read'*l'
-		if not s then f:close(); f = nil end
-		return s
-	end
-	local function close()
-		if f then f:close() end
-	end
-	return more, close
-end
 
 
 --tracked files breakdown: modules, scripts, docs
@@ -1561,6 +1563,23 @@ package_type = memoize_package(function(package)
 		has_ffi and 'Lua+ffi'
 		or has_mod and (has_mod_c and 'Lua/C' or 'Lua')
 		or has_c and 'C' or 'other'
+end)
+
+--license can be specified in the .md file and the default can be configured.
+license = memoize_package(function(package)
+	local license
+	local tags = doc_tags(package, package)
+	return tags and tags.license or config'default_license'
+end)
+
+--a package can contain a Lua binding and the underlying C library, and these
+--can come under diff. licenses -- if so, show them both: 'LIC1; LIC2'.
+combined_license = memoize_package(function(package)
+	local ctags = c_tags(package)
+	local c_license = ctags and (ctags.license or config'default_license')
+	local p_license = license(pkg)
+	return c_license and p_license ~= c_license
+		and p_license..'; '..c_license or p_license
 end)
 
 --pkg -> cat map
