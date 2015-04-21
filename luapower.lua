@@ -1097,7 +1097,7 @@ git_tags = memoize_package(libgit2 and function(package)
 end or function(package)
 	local t = {}
 	for s in gitlines(package, 'log --tags --simplify-by-decoration --pretty=%d') do
-		local tag = s:match'%(tag: (.-)%)'
+		local tag = s:match'%(tag: ([^%),])'
 		if tag then
 			t[#t+1] = tag
 		end
