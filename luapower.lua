@@ -1087,18 +1087,22 @@ end or function(package)
 	return git(package, 'describe --tags --long --always')
 end)
 
---list of tags
+--list of tags in order
 git_tags = memoize_package(libgit2 and function(package)
+	--TODO: sort tags by date1
 	local repo = repo(package)
 	local tags = repo:tags()
 	repo:free()
 	return tags
 end or function(package)
 	local t = {}
-	for tag in gitlines(package, 'tag') do
-		t[#t+1] = tag
+	for s in gitlines(package, 'log --tags --simplify-by-decoration --pretty=%d') do
+		local tag = s:match'%(tag: (.-)%)'
+		if tag then
+			t[#t+1] = tag
+		end
 	end
-	return t
+	return glue.reverse(t)
 end)
 
 --current tag
