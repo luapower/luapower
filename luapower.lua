@@ -1197,6 +1197,10 @@ function load_db()
 	db = glue.fileexists(dbfile) and assert(loadfile(dbfile))() or {}
 end
 
+function unload_db()
+	db = nil
+end
+
 function save_db()
 	assert(db, 'db not loaded')
 	local pp = require'pp'
