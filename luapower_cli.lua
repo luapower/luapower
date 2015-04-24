@@ -84,6 +84,22 @@ local function package_lister(handler, lister, enumerator)
 	end
 end
 
+local function module_lister(handler, lister, enumerator)
+	lister = lister or print
+	enumerator = enumerator or glue.pass
+	return function(mod, ...)
+		if mod then
+			local v = handler(mod, ...)
+			if v then lister(v) end
+		else
+			for mod in glue.sortedpairs(lp.modules()) do
+				local v = handler(mod, ...)
+				if v then print(string.format('%-26s %s', mod, enumerator(v))) end
+			end
+		end
+	end
+end
+
 local function enum_deps(deps_t)
 	local t = {}
 	--invert {platform = {dep=true}} to {dep = {platform = true}}
@@ -248,6 +264,7 @@ local function d_command(cmd, ...)
 	else
 		mod, platform = ...
 	end
+	assert(mod, 'module required')
 	local func_name = assert_arg(dmap[cmd], 'invalid d-... command')
 	local pkg = mod:match'^modules%-of%-(.*)'
 	assert_arg(not pkg or lp.installed_packages()[pkg], 'invalid package '..tostring(pkg))
@@ -398,12 +415,25 @@ local function init_actions()
 	add_action('tag',       '[PACKAGE]', 'current git tag', package_arg(package_lister(lp.git_tag)))
 	add_action('files',     '[PACKAGE]', 'tracked files', package_arg(keys_lister(lp.tracked_files)))
 	add_action('docs',      '[PACKAGE]', 'docs', package_arg(keys_lister(lp.docs)))
-	add_action('modules',   '[PACKAGE]', 'modules', package_arg(keys_lister(lp.modules)))
+	add_action('modules',   '[PACKAGE] [PLATFORM]', 'modules', package_arg(keys_lister(function(pkg, platform)
+			if not platform then
+				return lp.modules(pkg)
+			end
+			local t = {}
+			for mod in pairs(lp.modules(pkg)) do
+				local pt = lp.module_platforms(mod, pkg)
+				if not next(pt) or pt[platform] then
+					t[mod] = true
+				end
+			end
+			return t
+		end)))
 	add_action('scripts',   '[PACKAGE]', 'scripts', package_arg(keys_lister(lp.scripts)))
 	add_action('tree',      '[PACKAGE]', 'module tree', package_arg(tree_lister(lp.module_tree)))
 	add_action('mtags',     '[PACKAGE [MODULE]]', 'module info', package_arg(list_mtags))
 	add_action('platforms', '[PACKAGE]', 'supported platforms', package_arg(package_lister(lp.platforms, list_keys, enum_keys)))
 	add_action('ctags',     '[PACKAGE]', 'C package info', package_arg(package_lister(lp.c_tags, list_ctags, enum_ctags)))
+	add_action('mplatforms','[MODULE]', 'supported platforms per module', module_lister(lp.module_platforms, list_keys, enum_keys))
 
 	add_section'CHECKS'
 	add_action('check',        '[PACKAGE]', 'run all consistency checks', package_arg(consistency_checks))
@@ -414,12 +444,21 @@ local function init_actions()
 		tree_lister(function(mod, platform) return lp.module_requires_loadtime_tree(mod, nil, platform) end))
 	for i=1,#d_commands,3 do
 		local cmd, _, descr = unpack(d_commands, i, i+2)
-		add_action(cmd, string.rep(' ', 18 - #cmd)..' MODULE [PLATFORM]', descr, keys_lister(d_command))
+		add_action(cmd, string.rep(' ', 18 - #cmd)..' [MODULE] [PLATFORM]', descr,
+			module_lister(function(...) return d_command(cmd, ...) end, list_keys, enum_keys))
 	end
-	add_action('ffi-of', '       d-... MODULE [PLATFORM]', 'ffi.loads of module dependencies',
-		keys_lister(function(...) return d_command('ffi-of', ...) end))
-	add_action('packages-of', '  d-... MODULE [PLATFORM]', 'packages of module dependencies',
-		keys_lister(function(...) return d_command('packages-of', ...) end))
+	add_action('ffi-of', '       d-... [MODULE] [PLATFORM]', 'ffi.loads of module dependencies',
+		function(cmd, mod, ...)
+			return module_lister(function(mod, ...)
+				return d_command('ffi-of', cmd, mod, ...)
+			end, list_keys, enum_keys)(mod, ...)
+		end)
+	add_action('packages-of', '  d-... [MODULE] [PLATFORM]', 'packages of module dependencies',
+		function(cmd, mod, ...)
+			return module_lister(function(mod, ...)
+				return d_command('packages-of', cmd, mod, ...)
+			end, list_keys, enum_keys)(mod, ...)
+		end)
 
 	add_action('d-bin', '        [PACKAGE] [PLATFORM]', 'direct binary dependencies', package_arg(package_lister(lp.bin_deps, list_keys, enum_keys)))
 	add_action('d-bin-all', '    [PACKAGE] [PLATFORM]', 'direct + indirect binary dependencies', package_arg(package_lister(lp.bin_deps_all, list_keys, enum_keys)))

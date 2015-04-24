@@ -8,8 +8,6 @@ setfenv(1, luapower)
 local lfs = require'lfs'
 local glue = require'glue'
 local ffi = require'ffi'
---TODO: either make libgit2 work on Windows XP or make popen work on OSX!
-local libgit2 = ffi.os == 'OSX' and require'libgit2'
 
 
 --config
@@ -451,10 +449,6 @@ function gitlines(package, cmd)
 	return pipe_lines(gitp(package, cmd))
 end
 
-function repo(package)
-	return libgit2.open(git_dir(package))
-end
-
 
 --module finders
 ------------------------------------------------------------------------------
@@ -728,22 +722,7 @@ local function memoize_opt_package(func)
 end
 
 --git ls-files -> {path = package}
-tracked_files = memoize_opt_package(libgit2 and function(package)
-	local repo = repo(package)
-	local ref = repo:ref_dwim'master'
-	local id = repo:ref_name_to_id(ref:name())
-	local commit = repo:commit(id)
-	local tree = commit:tree()
-	local t = {}
-	for path in repo:files(tree) do
-		t[path] = package
-	end
-	tree:free()
-	commit:free()
-	ref:free()
-	repo:free()
-	return t
-end or function(package)
+tracked_files = memoize_opt_package(function(package)
 	local t = {}
 	for path in gitlines(package, 'ls-files') do
 		t[path] = package
@@ -1069,32 +1048,12 @@ end)
 ------------------------------------------------------------------------------
 
 --current git version
-git_version = memoize_package(libgit2 and function(package)
-	local repo = repo(package)
-	local ref = repo:ref_dwim'master'
-	local id = repo:ref_name_to_id(ref:name())
-	local obj = repo:object(id, 'commit')
-	local ok, ver = pcall(obj.describe_commit, obj, {
-			describe_strategy = libgit2.C.GIT_DESCRIBE_TAGS, --tags
-			always_use_long_format = true, --long
-			show_commit_oid_as_fallback = true, --always
-		})
-	obj:free()
-	ref:free()
-	repo:free()
-	return ok and ver or 'n/a'
-end or function(package)
+git_version = memoize_package(function(package)
 	return git(package, 'describe --tags --long --always')
 end)
 
 --list of tags in order
-git_tags = memoize_package(libgit2 and function(package)
-	--TODO: sort tags by date1
-	local repo = repo(package)
-	local tags = repo:tags()
-	repo:free()
-	return tags
-end or function(package)
+git_tags = memoize_package(function(package)
 	local t = {}
 	for s in gitlines(package, 'log --tags --simplify-by-decoration --pretty=%d') do
 		local tag = s:match'%(tag: ([^%),]+)'
@@ -1106,21 +1065,11 @@ end or function(package)
 end)
 
 --current tag
-git_tag = memoize_package(libgit2 and function(package)
-	local tags = git_tags(package)
-	return tags[#tags] or ''
-end or function(package)
+git_tag = memoize_package(function(package)
 	return git(package, 'describe --tags --abbrev=0')
 end)
 
-git_origin_url = memoize_package(libgit2 and function(package)
-	local repo = repo(package)
-	local cfg = repo:config()
-	local url = cfg:get'remote.origin.url'
-	cfg:free()
-	repo:free()
-	return url
-end or function(package)
+git_origin_url = memoize_package(function(package)
 	return git(package, 'config --get remote.origin.url')
 end)
 
@@ -1128,32 +1077,15 @@ local function git_log_time(package, args)
 	return tonumber(glue.trim(git(package, 'log -1 --format=%at '..args)))
 end
 
-git_master_time = memoize_package(libgit2 and function(package)
-	local repo = repo(package)
-	local ref = repo:ref_dwim'master'
-	local id = repo:ref_name_to_id(ref:name())
-	local commit = repo:commit(id)
-	local t = commit:time()
-	commit:free()
-	ref:free()
-	repo:free()
-	return t
-end or function(package)
+git_master_time = memoize_package(function(package)
 	return git_log_time(package, '')
 end)
 
-git_file_time = memoize_package(libgit2 and function(package, file)
-	--TODO: implement the file arg
-	--see https://github.com/libgit2/libgit2sharp/issues/89
-	return os.time()
-end or function(package, file)
+git_file_time = memoize_package(function(package, file)
 	return git_log_time(package, '--follow \''..file..'\'')
 end)
 
-git_tag_time = memoize_package(libgit2 and function(package, tag)
-	--TODO: implement this
-	return os.time()
-end or function(package, tag)
+git_tag_time = memoize_package(function(package, tag)
 	return git_log_time(package, tag)
 end)
 
@@ -1342,12 +1274,16 @@ function module_load_error(mod, package, platform)
 end
 
 --list of a module's supported platforms, which is a subset of it's package's
---supported platform. a module can signal that it doesn't support a specific
+--supported platforms. a module can signal that it doesn't support a specific
 --platform by raising an error containing 'platform not ' or 'arch not '.
 module_platforms = memoize_mod_package(function(mod, package)
 	package = package or module_package(mod)
 	local t = {}
-	for platform in pairs(platforms(package)) do
+	local platforms = platforms(package)
+	if not next(platforms) then --package doesn't specify, so check all.
+		platforms = config'platforms'
+	end
+	for platform in pairs(platforms) do
 		local err = module_load_error(mod, package, platform)
 		if not err or not (err:find'platform not ' or err:find'arch not ') then
 			t[platform] = true
