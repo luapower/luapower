@@ -377,7 +377,7 @@ end
 
 --open a file and return a give-me-the-next-line function and a close function.
 function more(filename)
-	local f, err = io.open(filename, r)
+	local f, err = io.open(filename, 'r')
 	if not f then return nil, err end
 	local function more()
 		local s = f:read'*l'
@@ -1117,7 +1117,8 @@ end)
 --2) tracking live on a RPC server that runs on the needed platform.
 ------------------------------------------------------------------------------
 
-db = nil --{platform = {package = {module = tracking_table}}}
+--NOTE: initializing with false instead of nil for compat. with strict.lua.
+db = false --{platform = {package = {module = tracking_table}}}
 
 local function dbfile()
 	return powerpath'luapower_db.lua'
@@ -1185,7 +1186,7 @@ end
 --get_tracking_data() on a luapower RPC server running on the right platform.
 --for the current platform, if allowed, and there's no server configured
 --for it, do the tracking directly.
-function update_db(package, platform0) --package and platform0 are optional filters
+function update_db(package, platform0, mod) --package and platform0 are optional filters
 	load_db()
 	local threads_started
 	for platform in pairs(config'platforms') do
@@ -1209,7 +1210,9 @@ function update_db(package, platform0) --package and platform0 are optional filt
 				end)
 				threads_started = true
 			else
-				print('no RPC server for '..platform..(package and ' to get info about '..package or ''))
+				print('no RPC server for '..platform..
+					(package and ' to get info about '..
+						(mod or package) or ''))
 			end
 		end
 	end
@@ -1230,7 +1233,7 @@ function track_module_platform(mod, package, platform)
 				and db[platform][package][mod]
 			) and config'auto_update_db'
 		then
-			update_db(package, platform)
+			update_db(package, platform, mod)
 		end
 	end
 	return db[platform] and db[platform][package] and db[platform][package][mod] or {}
