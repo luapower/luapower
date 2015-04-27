@@ -31,6 +31,7 @@ local cfg = {
 --get or set a config value
 function config(var, val)
 	if val ~= nil then
+		glue.assert(cfg[var] ~= nil, 'unknown config var: %s', var)
 		cfg[var] = val
 	else
 		return cfg[var]
@@ -46,9 +47,9 @@ function powerpath(file)
 	return config'luapower_dir'..plusfile(file)
 end
 
---make a path given a .mgit-dir relative path
+--make an abs path given a mgit-dir relative path
 function mgitpath(file)
-	return powerpath(config'mgit_dir'..plusfile(file))
+	return config'mgit_dir'..plusfile(file)
 end
 
 
@@ -401,14 +402,11 @@ local function pipe_lines(cmd)
 	else
 		cmd = cmd .. ' 2> /dev/null'
 	end
-	local pwd = lfs.currentdir()
-	lfs.chdir(powerpath())
 	local t = {}
-	glue.fcall(function(finally, onerror)
+	glue.fcall(function(finally)
 		local f = assert(io.popen(cmd, 'r'))
 		finally(function()
 			f:close()
-			lfs.chdir(pwd)
 		end)
 		f:setvbuf'full'
 		for line in f:lines() do
@@ -441,12 +439,23 @@ local function gitp(package, args)
 	return git..' --git-dir="'..git_dir(package)..'" '..args
 end
 
+local function in_dir(dir, func, ...)
+	local pwd = assert(lfs.currentdir())
+	assert(lfs.chdir(dir))
+	local function pass(ok, ...)
+		lfs.chdir(pwd)
+		assert(ok, ...)
+		return ...
+	end
+	return pass(glue.pcall(func, ...))
+end
+
 function git(package, cmd)
-	return read_pipe(gitp(package, cmd))
+	return in_dir(powerpath(), read_pipe, gitp(package, cmd))
 end
 
 function gitlines(package, cmd)
-	return pipe_lines(gitp(package, cmd))
+	return in_dir(powerpath(), pipe_lines, gitp(package, cmd))
 end
 
 
@@ -629,7 +638,7 @@ end
 
 --parse the table of contents file into a list of categories and docs.
 cats = memoize_package(function(package)
-	local more, close = assert(more(mgitpath'luapower-cat.md'))
+	local more, close = assert(more(powerpath(mgitpath'luapower-cat.md')))
 	local cats = {}
 	local lastcat
 	local misc
@@ -672,7 +681,7 @@ end)
 --.mgit/<name>.origin -> {name = true}
 known_packages = memoize(function()
 	local t = {}
-	for f in dir(powerpath(config'mgit_dir')) do
+	for f in dir(powerpath(mgitpath())) do
 		local s = f:match'^(.-)%.origin$'
 		if s then t[s] = true end
 	end
@@ -682,9 +691,9 @@ end)
 --.mgit/<name>/ -> {name = true}
 installed_packages = memoize(function()
 	local t = {}
-	for f, _, mode in dir(powerpath(config'mgit_dir')) do
+	for f, _, mode in dir(powerpath(mgitpath())) do
 		if mode == 'directory'
-			and lfs.attributes(git_dir(f), 'mode') == 'directory'
+			and lfs.attributes(powerpath(git_dir(f)), 'mode') == 'directory'
 		then
 			t[f] = true
 		end
