@@ -30,8 +30,10 @@ The API can be categorized based on the different types of things it does:
   this is the bulk of the API.
   2. connecting to an RPC server and using the API remotely, in order to
   collect data from other platforms.
-  3. creating/updating a small database (luapower_db.lua) containing
+  3. creating/updating a small database ([luapower_db.lua]) containing
   dependency information collected from different platforms.
+
+[luapower_db.lua]: https://luapower.com/files/luapower_db.lua
 
 So the bulk of the API contains stuff like, eg.:
 
