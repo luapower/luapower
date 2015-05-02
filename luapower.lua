@@ -17,6 +17,11 @@ local cfg = {
 	luapower_dir = '.',    --the location of the luapower tree to inspect on
 	mgit_dir = '.mgit',    --relative to luapower_dir
 	oses = {mingw = true, linux = true, osx = true}, --supported OSes
+	os_platforms = {
+		mingw = {mingw32 = true, mingw64 = true},
+		linux = {linux32 = true, linux64 = true},
+		osx   = {osx32 = true, osx64 = true},
+	},
 	platforms = {          --supported platforms
 		mingw32 = true, mingw64 = true,
 		linux32 = true, linux64 = true,
@@ -611,13 +616,13 @@ local function parse_md_file(md_file)
 	local docname = md_file:match'([^/\\]+)%.md$'
 	local t = {}
 	local more, close = more(md_file)
-	if not more or more() ~= '---' then
+	if not more or not more():find '^---' then
 		t.title = docname
 		close()
 		return t
 	end
 	for s in more do
-		if s == '---' then break end
+		if s:find'^---' then break end
 		local k,v = split_kv(s, ':')
 		if not k then
 			error('invalid tag '..s)
@@ -1038,7 +1043,12 @@ declared_platforms = memoize_opt_package(function(package)
 		for platform in glue.gsplit(tags.platforms, ',') do
 			platform = glue.trim(platform)
 			if platform ~= '' then
-				t[platform] = true
+				local pt = config('os_platforms')[platform]
+				if pt then
+					glue.update(t, pt)
+				else
+					t[platform] = true
+				end
 			end
 		end
 	end
