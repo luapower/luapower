@@ -1246,6 +1246,11 @@ function track_module_platform(mod, package, platform)
 	package = package or module_package(mod)
 	load_db()
 	if package then
+		--platform not supported, return an empty table
+		local plt = platforms(package)
+		if next(plt) and not plt[package] then
+			return {}
+		end
 		if not (
 				db[platform]
 				and db[platform][package]
