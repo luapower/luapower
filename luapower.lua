@@ -1180,7 +1180,7 @@ local function get_tracking_data(package) --package is an optional filter
 	if package then
 		local t = glue.attr(t, package)
 		local plt = platforms(package)
-		if not next(plt) or plt[package] then --only track on supported platforms
+		if not next(plt) or plt[current_platform()] then --only track on supported platforms
 			for mod in pairs(lp.modules(package)) do
 				t[mod] = lp.track_module(mod, package)
 			end
