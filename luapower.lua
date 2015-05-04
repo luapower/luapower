@@ -1179,8 +1179,11 @@ local function get_tracking_data(package) --package is an optional filter
 	local t = {}
 	if package then
 		local t = glue.attr(t, package)
-		for mod in pairs(lp.modules(package)) do
-			t[mod] = lp.track_module(mod, package)
+		local plt = platforms(package)
+		if not next(plt) or plt[package] then --only track on supported platforms
+			for mod in pairs(lp.modules(package)) do
+				t[mod] = lp.track_module(mod, package)
+			end
 		end
 	else
 		for package in pairs(lp.installed_packages()) do
@@ -1246,11 +1249,6 @@ function track_module_platform(mod, package, platform)
 	package = package or module_package(mod)
 	load_db()
 	if package then
-		--platform not supported, return an empty table
-		local plt = platforms(package)
-		if next(plt) and not plt[package] then
-			return {}
-		end
 		if not (
 				db[platform]
 				and db[platform][package]
