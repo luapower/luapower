@@ -757,6 +757,7 @@ local function is_module_path(p, platform)
 			and not p:find('^bin/'..platform..'/lua/')) --platform Lua modules
 		or p:find'^csrc/'  --can't have modules in csrc
 		or p:find'^media/' --can't have modules in media
+		or p:find'^.mgit/' --can't have modules in .mgit
 	)
 end
 
