@@ -1518,16 +1518,26 @@ package_type = memoize_package(function(package)
 	for mod in pairs(modules(package)) do
 		local lang = module_tags(package, mod).lang
 		if lang == 'C' then
-			has_mod_c = true
+			has_mod_c = mod
 		else
-			has_mod_lua = true
+			has_mod_lua = mod
 		end
-		if module_requires_loadtime_all(mod, package).ffi then
-			has_ffi = true
-			break
+		for platform in pairs(module_platforms(mod, package)) do
+			if module_requires_loadtime_all(mod, package, platform).ffi then
+				has_ffi = mod
+				break
+			end
 		end
 	end
-	assert(not has_ffi or has_mod_lua) --ffi modules are written in Lua
+	--disambiguate: package has both Lua/C and Lua+ffi modules.
+	--decide the package type based on what the main module is, if any.
+	if has_mod_c and has_ffi then
+		if has_mod_c == package then
+			has_ffi = false
+		elseif has_ffi == package then
+			has_mod_c = false
+		end
+	end 
 	assert(not has_mod_c or has_c) --Lua/C modules without source?
 	return
 		has_ffi and 'Lua+ffi'
