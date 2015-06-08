@@ -1013,8 +1013,10 @@ build_platforms = memoize_opt_package(function(package)
 	local t = {}
 	if csrc_dir(package) then
 		for path in pairs(tracked_files(package)) do
-			local platform = path:match('^'..
-				glue.escape(csrc_dir(package)..'/build-')..'(.-)%.sh$')
+			local s = glue.escape(csrc_dir(package)..'/build-')
+			local platform = 
+				path:match('^'..s..'(.-)%.sh$') or
+				path:match('^'..s..'(.-)%.cmd$')
 			if platform and config('platforms')[platform] then
 				t[platform] = true
 			end
