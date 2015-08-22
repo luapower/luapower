@@ -291,7 +291,7 @@ module_requires_parsed = memoize(function(m) --direct dependencies
 		return t
 	end
 	local path =
-		--search for lua files in standard path
+		--search for .lua files in standard path
 		package.searchpath(m, package.path)
 		--search for .dasl files in the same path as .lua files
 		or package.searchpath(m, package.path:gsub('%.lua', '.dasl'))
@@ -327,6 +327,33 @@ module_requires_parsed = memoize(function(m) --direct dependencies
 	end
 	return t
 end)
+
+
+--module header parsing
+------------------------------------------------------------------------------
+
+function parse_module_header(file)
+	local t = {}
+	local f = io.open(file, 'r')
+	if f then
+		local s1 = f:read'*l'
+		if s1 and s1:find'^%s*$' then --sometimes the first line is empty
+			s1 = f:read'*l'
+		end
+		local s2 = f:read'*l'
+		f:close()
+		if s1 then
+			t.name, t.descr = s1:match'^%-%-%s*([^%:]+)%:%s*(.*)'
+			if not t.name then
+				t.descr = s1:match'^%-%-%s*(.*)'
+			end
+		end
+		if s2 then
+			t.author, t.license = s2:match'^%-%-[Ww]ritten [Bb]y%:? ([^%.]+)%.%s*([^%.]+)%.'
+		end
+	end
+	return t
+end
 
 
 --comparison function for table.sort() for modules: sorts built-ins first.
@@ -886,6 +913,27 @@ doc_tags = memoize_package(function(package, doc)
 end)
 
 
+--module header tags
+------------------------------------------------------------------------------
+
+modulefile_header = memoize(parse_module_header)
+
+module_header = memoize_package(function(package, mod)
+	local path = modules(package)[mod]
+	return path and modulefile_header(powerpath(path))
+end)
+
+module_headers = memoize_package(function(package)
+	local t = {}
+	for mod in pairs(modules(package)) do
+		local dt = module_header(package, mod)
+		dt.module = mod
+		t[#t+1] = dt
+	end
+	table.sort(t, function(t1, t2) return (t1.name or t1.module) < (t2.name or t2.module) end)
+	return t
+end)
+
 --reverse lookups
 ------------------------------------------------------------------------------
 
@@ -1014,7 +1062,7 @@ build_platforms = memoize_opt_package(function(package)
 	if csrc_dir(package) then
 		for path in pairs(tracked_files(package)) do
 			local s = glue.escape(csrc_dir(package)..'/build-')
-			local platform = 
+			local platform =
 				path:match('^'..s..'(.-)%.sh$') or
 				path:match('^'..s..'(.-)%.cmd$')
 			if platform and config('platforms')[platform] then
@@ -1539,7 +1587,7 @@ package_type = memoize_package(function(package)
 		elseif has_ffi == package then
 			has_mod_c = false
 		end
-	end 
+	end
 	assert(not has_mod_c or has_c) --Lua/C modules without source?
 	return
 		has_ffi and 'Lua+ffi'

@@ -150,6 +150,22 @@ local function list_mtags(package, mod)
 	end
 end
 
+local function list_mheader(package, mod)
+	if not package then
+		for package in pairs(lp.installed_packages()) do
+			list_mheader(package)
+		end
+	elseif not mod or mod == '--all' then
+		local t = lp.module_headers(package)
+		for i,t in ipairs(t) do
+			print(string.format('%-26s %-26s %-60s %-26s %s', t.module, t.name or t.module, t.descr or '', t.author or '', t.license or ''))
+		end
+	else
+		local t = lp.module_header(package, mod)
+		print(string.format('%-26s %-26s %-60s %-26s %s', mod, t.name, t.descr, t.author, t.license))
+	end
+end
+
 local function enum_ctags(t)
 	return string.format('%-24s %-16s %-16s %-36s',
 		t.realname, t.version, t.license, t.url)
@@ -431,6 +447,7 @@ local function init_actions()
 	add_action('scripts',   '[PACKAGE]', 'scripts', package_arg(keys_lister(lp.scripts)))
 	add_action('tree',      '[PACKAGE]', 'module tree', package_arg(tree_lister(lp.module_tree)))
 	add_action('mtags',     '[PACKAGE [MODULE]]', 'module info', package_arg(list_mtags))
+	add_action('mheader',   '[PACKAGE [MODULE]]', 'module header', package_arg(list_mheader))
 	add_action('platforms', '[PACKAGE]', 'supported platforms', package_arg(package_lister(lp.platforms, list_keys, enum_keys)))
 	add_action('ctags',     '[PACKAGE]', 'C package info', package_arg(package_lister(lp.c_tags, list_ctags, enum_ctags)))
 	add_action('mplatforms','[MODULE]', 'supported platforms per module', module_lister(lp.module_platforms, list_keys, enum_keys))
