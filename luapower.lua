@@ -335,8 +335,9 @@ end)
 function parse_module_header(file)
 	local t = {}
 	local f = io.open(file, 'r')
-	--TODO: parse "Author: "
-	--TODO: parse "License: "
+	--TODO: check if the module is a .lua file first (what else can it be?).
+	--TODO: parse "Author: XXX"
+	--TODO: parse "License: XXX"
 	--TODO: parse all comment lines before a non-comment line starts.
 	--TODO: parse long comments too.
 	if f then
@@ -1606,21 +1607,25 @@ package_type = memoize_package(function(package)
 		or has_c and 'C' or 'other'
 end)
 
+local function key(key, t) return t and t[key] end
+
 --license can be specified in the header of the main module file
 --or in the .md file, otherwise the WHAT-file license is assumed,
 --and finally the default license is used as a fallback.
 license = memoize_package(function(package)
-	local t = doc_tags(package, package)
-	local license = t and t.license
-	if not license then
-		local t = module_header(package, package)
-		license = t and t.license
-	end
-	if not license then
-		local t = what_tags(package)
-		license = t and t.license
-	end
-	return license or config'default_license'
+	return
+		key('license', doc_tags(package, package)) or
+		key('license', module_header(package, package)) or
+		key('license', what_tags(package)) or
+		config'default_license'
+end)
+
+--a module's tagline can be specified in the header of the module file
+--or in the .md of the module.
+module_tagline = memoize_package(function(package, mod)
+	return
+		key('descr', module_header(package, mod)) or
+		key('tagline', doc_tags(package, mod))
 end)
 
 --pkg -> cat map
