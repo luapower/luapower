@@ -383,9 +383,9 @@ local function describe_package(package, platform)
 		list_keys(lp.scripts(package))
 	end
 
-	if lp.c_tags(package) then
+	if lp.what_tags(package) then
 		h'C Lib'
-		list_ctags(lp.c_tags(package))
+		list_ctags(lp.what_tags(package))
 	end
 
 	if next(lp.docs(package)) then
@@ -449,7 +449,7 @@ local function init_actions()
 	add_action('mtags',     '[PACKAGE [MODULE]]', 'module info', package_arg(list_mtags))
 	add_action('mheader',   '[PACKAGE [MODULE]]', 'module header', package_arg(list_mheader))
 	add_action('platforms', '[PACKAGE]', 'supported platforms', package_arg(package_lister(lp.platforms, list_keys, enum_keys)))
-	add_action('ctags',     '[PACKAGE]', 'C package info', package_arg(package_lister(lp.c_tags, list_ctags, enum_ctags)))
+	add_action('ctags',     '[PACKAGE]', 'C package info', package_arg(package_lister(lp.what_tags, list_ctags, enum_ctags)))
 	add_action('mplatforms','[MODULE]', 'supported platforms per module', module_lister(lp.module_platforms, list_keys, enum_keys))
 
 	add_section'CHECKS'

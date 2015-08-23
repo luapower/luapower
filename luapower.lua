@@ -335,6 +335,10 @@ end)
 function parse_module_header(file)
 	local t = {}
 	local f = io.open(file, 'r')
+	--TODO: parse "Author: "
+	--TODO: parse "License: "
+	--TODO: parse all comment lines before a non-comment line starts.
+	--TODO: parse long comments too.
 	if f then
 		local s1 = f:read'*l'
 		if s1 and s1:find'^%s*$' then --sometimes the first line is empty
@@ -350,6 +354,9 @@ function parse_module_header(file)
 		end
 		if s2 then
 			t.author, t.license = s2:match'^%-%-[Ww]ritten [Bb]y%:? ([^%.]+)%.%s*([^%.]+)%.'
+			if t.license and t.license:lower() == 'public domain' then
+				t.license = 'PD'
+			end
 		end
 	end
 	return t
@@ -930,7 +937,11 @@ module_headers = memoize_package(function(package)
 		dt.module = mod
 		t[#t+1] = dt
 	end
-	table.sort(t, function(t1, t2) return (t1.name or t1.module) < (t2.name or t2.module) end)
+	table.sort(t, function(t1, t2)
+		local s1 = t1.name or t1.module
+		local s2 = t2.name or t2.module
+		return s1 < s2
+	end)
 	return t
 end)
 
@@ -1028,7 +1039,7 @@ csrc_dir = memoize_package(function(package)
 end)
 
 --csrc/*/WHAT -> {tag=val,...}
-c_tags = memoize_package(function(package)
+what_tags = memoize_package(function(package)
 	if not csrc_dir(package) then return end
 	local what_file = powerpath(csrc_dir(package) .. '/WHAT')
 	return glue.fileexists(what_file) and parse_what_file(what_file)
@@ -1045,7 +1056,7 @@ end)
 --package dependencies as declared in the WHAT file.
 bin_deps = memoize_package(function(package, platform)
 	platform = check_platform(platform)
-	local t = c_tags(package) and c_tags(package).dependencies
+	local t = what_tags(package) and what_tags(package).dependencies
 	t = t and t[platform] or {}
 	--packages containing Lua/C modules have an _implicit_ binary
 	--dependency on luajit on Windows because they link against lua51.dll.
@@ -1595,13 +1606,19 @@ package_type = memoize_package(function(package)
 		or has_c and 'C' or 'other'
 end)
 
---license can be specified in the .md file and the default can be configured.
+--license can be specified in the header of the main module file
+--or in the .md file, otherwise the WHAT-file license is assumed,
+--and finally the default license is used as a fallback.
 license = memoize_package(function(package)
-	local tags = doc_tags(package, package)
-	local license = tags and tags.license
+	local t = doc_tags(package, package)
+	local license = t and t.license
 	if not license then
-		local ctags = c_tags(package)
-		license = ctags and ctags.license
+		local t = module_header(package, package)
+		license = t and t.license
+	end
+	if not license then
+		local t = what_tags(package)
+		license = t and t.license
 	end
 	return license or config'default_license'
 end)
