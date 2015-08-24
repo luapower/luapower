@@ -823,15 +823,8 @@ docs = opt_package(memoize_package(function(package)
 	local t = {}
 	for path in pairs(tracked_files(package)) do
 		if is_doc_path(path) then
-			local dir, file = split_path(path)
-			local name = file:match'^(.-)%.md$'
+			local name = path:gsub('/', '.'):match'^(.-)%.md$'
 			if name then
-				if t[name] then
-					--docs can be anywhere but you can't have two docs with
-					--the same filename because they go on a flat namespaces
-					--on the website.
-					error('duplicate doc '..name..' as '..t[name]..' and '..path)
-				end
 				t[name] = path
 			end
 		end
