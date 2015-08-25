@@ -648,7 +648,7 @@ end
 
 --parse the yaml header of a pandoc .md file, enclosed between '---\n'
 local function parse_md_file(md_file)
-	local docname = md_file:gsub('/', '.'):match'^(.-)%.md$'
+	local docname = md_file:match'([^/\\]+)%.md$'
 	local t = {}
 	local more, close = more(md_file)
 	if not more or not more():find '^---' then
