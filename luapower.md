@@ -33,7 +33,7 @@ The API can be categorized based on the different types of things it does:
   3. creating/updating a small database ([luapower_db.lua]) containing
   dependency information collected from different platforms.
 
-[luapower_db.lua]: https://luapower.com/files/luapower_db.lua
+[luapower_db.lua]: /files/luapower/luapower_db.lua
 
 So the bulk of the API contains stuff like, eg.:
 
