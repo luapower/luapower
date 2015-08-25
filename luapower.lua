@@ -907,7 +907,7 @@ end)
 
 docfile_tags = memoize(parse_md_file)
 
---tracked <doc>.md -> {title='', project='', other yaml tags...}
+--tracked <doc>.md -> {title='', other yaml tags...}
 doc_tags = memoize_package(function(package, doc)
 	local path = docs(package)[doc]
 	return path and docfile_tags(powerpath(path))
