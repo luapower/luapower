@@ -1511,7 +1511,7 @@ function track_module_platform(mod, package, platform)
 				db[platform]
 				and db[platform][package]
 				and db[platform][package][mod]
-			))
+			)
 		then
 			update_db(package, platform, mod)
 		end
