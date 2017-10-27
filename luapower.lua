@@ -225,7 +225,6 @@ local cfg = {
 	},
 	servers = {},          --{platform = {'ip|host', port}}
 	--behavior
-	force_update_db = true,
 	auto_update_db = true, --update the db automatically when info is missing
 	allow_update_db_locally = true, --allow in-process dependency tracking
 	default_license = 'PD', --public domain
@@ -1010,6 +1009,7 @@ local function is_doc_path(p)
 		p:find'^bin/'
 		or p:find'^csrc/'
 		or p:find'^media/'
+		or p:find'^.mgit/'
 	)
 end
 
@@ -1507,12 +1507,11 @@ function track_module_platform(mod, package, platform)
 	package = package or module_package(mod)
 	load_db()
 	if package then
-		if config'force_update_db'
-			or (config'auto_update_db' and not (
-					db[platform]
-					and db[platform][package]
-					and db[platform][package][mod]
-				))
+		if config'auto_update_db' and not (
+				db[platform]
+				and db[platform][package]
+				and db[platform][package][mod]
+			))
 		then
 			update_db(package, platform, mod)
 		end
