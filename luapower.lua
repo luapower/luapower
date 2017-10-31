@@ -1138,6 +1138,10 @@ local path_match = {
 	'^bin/([^/]+)/lib(.-)%.so$', 'C library <b>{2}</b> compiled dynamically for <b>{1}</b>',
 	'^bin/([^/]+)/lib(.-)%.dylib$', 'C library <b>{2}</b> compiled dynamically for <b>{1}</b>',
 	'^bin/([^/]+)/(.-)%.dll$', 'C library <b>{2}</b> compiled dynamically for <b>{1}</b>',
+	'^bin/([^/]+)/luajit', 'LuaJIT wrapper for <b>{1}</b>',
+	'^bin/([^/]+)/luajit-bin', 'LuaJIT executable for <b>{1}</b>',
+	'^bin/([^/]+)/luajit.exe', 'LuaJIT executable for <b>{1}</b>',
+	'^bin/(osx..)/luajit', 'LuaJIT wrapper for <b>{1}</b>',
 	'^csrc/$', 'All C source files and build scripts for all packages',
 	'^csrc/([^/]+)/$', 'C sources & build scripts for <b>{1}</b>',
 	'^csrc/([^/]+)/WHAT$', 'WHAT file for <b>{1}</b>',
@@ -1157,6 +1161,10 @@ local path_match = {
 	'(.-)%.lua$', 'Lua module <b>{1}</b>',
 	'(.-)%.dasl$', 'Lua/DynASM module <b>{1}</b>',
 	'(.-)%.md$', 'Documentation for <b>{1}</b>',
+	'^luajit$', '<b class=important>LuaJIT loader for Linux and OSX<b>',
+	'^luajit32$', '<b class=important>LuaJIT 32bit mode loader for Linux and OSX<b>',
+	'^luajit.cmd$', '<b class=important>LuaJIT loader for Windows<b>',
+	'^luajit32.cmd$', '<b class=important>LuaJIT 32bit loader for Windows<b>',
 }
 local function pass(format, ...)
 	if not ... then return end
