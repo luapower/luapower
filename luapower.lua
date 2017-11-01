@@ -215,13 +215,13 @@ UPDATING THE DEPENDENCY DB:
 
 DEPENDENCY INFO BREAKDOWN:
 
-	module_requires_loadtime(mod, package, platform)
 	module_load_error(mod, package, platform)
 	module_platforms(mod, package)
-	module_requires_loadtime_ffi(mod, package, platform)
 	module_autoloads(mod, package, platform)
-	module_requires_runtime(mod, package, platform)
 	module_autoloaded(mod, package, platform)
+	module_requires_loadtime(mod, package, platform)
+	module_requires_loadtime_ffi(mod, package, platform)
+	module_requires_runtime(mod, package, platform)
 	module_requires_alltime(mod, package, platform)
 
 MODULE INDIRECT DEPENDENCIES:
@@ -1826,7 +1826,7 @@ bin_deps_all = memoize_opt_package(function(package, platform)
 end)
 
 
---reverse dependencies
+--reverse module dependencies
 ------------------------------------------------------------------------------
 
 --get the modules and packages that depend on a module,
@@ -1875,9 +1875,59 @@ local function package_required_for(deps_func)
 	end)
 end
 
+
+--reverse package dependencies
+------------------------------------------------------------------------------
+
 --which packages is a package a binary dependency of.
 rev_bin_deps     = package_required_for(bin_deps)
 rev_bin_deps_all = package_required_for(bin_deps_all)
+
+
+--package dependencies of module dependencies
+------------------------------------------------------------------------------
+
+--[[
+local function packages_of_deps(dep_func, mod, pkg, platform)
+	mod = mod or modules(pkg, platform)
+	if type(mod) == 'table' then
+		local t = {}
+		for mod in pairs(mod) do
+			glue.update(t, packages_of(dep_func, mod, pkg, platform))
+		end
+		return t
+	end
+	local t = {}
+	for mod in pairs(dep_func(mod, pkg, platform)) do
+		local dpkg = module_package(mod)
+		if dpkg and dpkg ~= pkg then --exclude self
+			t[dpkg] = true
+		end
+	end
+	return t
+end
+
+local function packages_of_for(dep_func)
+	return memoize(function(mod, pkg, platform)
+		return packages_of_deps(dep_func, mod, pkg, platform)
+	end)
+end
+
+requires_loadtime_packages = packages_of_for(module_requires_loadtime)
+requires_loadtime_ffi_packages = packages_of_for(
+autoloads_packages
+requires_runtime_packages
+autoloaded_packages
+requires_alltime_packages
+requires_loadtime_all_packages
+requires_alltime_all_packages
+requires_loadtime_int_packages
+requires_loadtime_ext_packages
+required_loadtime_packages
+required_alltime_packages
+required_loadtime_all_packages
+required_alltime_all_packages
+]]
 
 
 --analytic info
@@ -2034,46 +2084,6 @@ end)
 
 ------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
-
-function packages_of(dep_func, mod, pkg, platform)
-	local t = {}
-	for mod in pairs(dep_func(mod, pkg, platform)) do
-		local dpkg = module_package(mod)
-		if dpkg and dpkg ~= pkg then --exclude self
-			t[dpkg] = true
-		end
-	end
-	return t
-end
-
-function packages_of_many(dep_func, mod, pkg, platform)
-	local t = {}
-	for mod in pairs(mod) do
-		glue.update(t, packages_of(dep_func, mod, pkg, platform))
-	end
-	return t
-end
-
-function packages_of_all(dep_func, pkg, platform)
-	return packages_of_many(dep_func, modules(pkg, platform), pkg, platform)
-end
-
-function package_dep_maps(pkg, platforms)
-	local pts = {}
-	for plat in pairs(platforms) do
-		local pt = {}
-		pts[plat] = pt
-		local pext = packages_of_all(module_requires_loadtime_ext, pkg, plat)
-		local pall = packages_of_all(module_requires_loadtime_all, pkg, plat)
-		glue.update(pext, bin_deps(pkg, plat))
-		glue.update(pall, bin_deps_all(pkg, plat))
-		for p in pairs(pall) do
-			pt[p] = {kind = pext[p] and 'external' or 'indirect'}
-		end
-	end
-	return pts
-end
-
 
 --general path breakdown
 ------------------------------------------------------------------------------
