@@ -152,10 +152,10 @@ TRACKED FILES BREAKDOWN:
 
 	tracked_files([package]) -> t         {path=package}
 	docs([package]) -> t                  {name=path}
-	modules([package]) ->                 {name=path}
+	modules([package]) -> t               {name=path}
 	scripts([package]) -> t               {name=path}
 	file_types([package]) -> t            {path='module'|'script'|...}
-	module_tree(package) ->               {name=, children=}
+	module_tree(package) -> t             {name=, children=}
 
 PARSING MD FILES:
 
@@ -164,11 +164,11 @@ PARSING MD FILES:
 
 PARSING LUA FILES:
 
-	module_requires_parsed(module) -> t   {module=}
+	module_requires_parsed(module) -> t   {module=true}
 
 	modulefile_header(file) -> t          {name=, descr=, author=, license=}
 	module_header([package], mod) -> t    {name=, descr=, author=, license=}
-	module_headers(package) -> t          {module = header_table}
+	module_headers(package) -> t          {module=header_table}
 
 PACKAGE REVERSE LOOKUP:
 
@@ -262,7 +262,7 @@ CONSISTENCY CHECKS:
 
 GENERATING MGIT DEPS FILES:
 
-	update_mgit_deps([package])     (re)create .deps file(s)
+	update_mgit_deps([package])           (re)create .deps file(s)
 
 RPC API:
 
@@ -1100,12 +1100,16 @@ local function is_module(mod)
 	)
 end
 
+local function doc_name(path)
+	return path:gsub('/', '.'):match'^(.-)%.md$'
+end
+
 --tracked <doc>.md -> {doc = path}
 docs = memoize_opt_package(function(package)
 	local t = {}
 	for path in pairs(tracked_files(package)) do
 		if is_doc_path(path) then
-			local name = path:gsub('/', '.'):match'^(.-)%.md$'
+			local name = doc_name(path)
 			if name then
 				t[name] = path
 			end
@@ -1163,7 +1167,7 @@ file_types = memoize_opt_package(function(package)
 			local mod = module_name(path)
 			if mod then
 				t[path] = is_module(mod) and 'module' or 'script'
-			elseif is_doc_path(path) then
+			elseif is_doc_path(path) and doc_name(path) then
 				t[path] = 'doc'
 			else
 				t[path] = 'unknown'
