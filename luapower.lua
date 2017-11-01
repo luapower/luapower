@@ -148,7 +148,6 @@ PARSING luapower-cat.md:
 	packages_cats() -> t                  {pkg=cat}
 	package_cat(pkg) -> s                 package's category
 
-
 TRACKED FILES BREAKDOWN:
 
 	tracked_files([package]) -> t         {path=package}
@@ -179,7 +178,6 @@ PACKAGE REVERSE LOOKUP:
 
 CSRC DIRECTORY:
 
-	csrc_dir(package]) -> s               package dir in csrc dir if any
 	what_tags(package) -> t               {realname=,version=,url=,license=,
 	                                        dependencies={platf={dep=true}}}
 	bin_deps(package, platform) -> t      {platform={package=}}
@@ -255,7 +253,6 @@ ANALYTIC INFO:
 	license(package) -> s                 license
 	module_tagline(package, mod) -> s     tagline
 	build_order(packages, platform) -> t  {pkg1,...}
-	path_description(path) -> s           describe any file or dir
 
 CONSISTENCY CHECKS:
 
@@ -1346,7 +1343,7 @@ end)
 ------------------------------------------------------------------------------
 
 --check if the package has a dir named `csrc/PACKAGE`, and return that path.
-csrc_dir = memoize_package(function(package)
+local csrc_dir = memoize_package(function(package)
 	if lfs.attributes(powerpath('csrc/'..package), 'mode') == 'directory' then
 		return 'csrc/'..package
 	end
@@ -2080,74 +2077,6 @@ build_order = memoize(function(packages, platform)
 		assert(not guard, 'all packages have dependencies')
 	end
 	return dt
-end)
-
-------------------------------------------------------------------------------
-------------------------------------------------------------------------------
-
---general path breakdown
-------------------------------------------------------------------------------
-
---tracked file -> {path = description}
-local path_match = {
-	'^%.mgit/$', 'Multigit directory (contains all .git directories)',
-	'^%.mgit/([^/]+)/$', 'Contains the .git directory for package <b>{1}</b>',
-	'^%.mgit/([^/]+)/%.git/$', '.git directory for package <b>{1}</b>',
-	'^%.mgit/([^/]+)/([^/]+).exclude$', '.gitignore file for package <b>{1}</b>',
-	'^bin/$', 'All binaries for all packages & all platforms',
-	'^bin/([^/]+)/$', 'All binaries compiled for <b>{1}</b>',
-	'^bin/([^/]+)/clib/$', 'All Lua/C modules compiled for <b>{1}</b>',
-	'^bin/([^/]+)/clib/(.-)%.a$', 'Lua/C module <b>{2}</b> compiled statically for <b>{1}</b>',
-	'^bin/([^/]+)/clib/(.-)%.so$', 'Lua/C module <b>{2}</b> compiled dynamically for <b>{1}</b>',
-	'^bin/([^/]+)/lua/$', 'All pure-Lua modules that are <b>{1}</b>-specific',
-	'^bin/([^/]+)/lib(.-)%.a$', 'C library <b>{2}</b> compiled statically for <b>{1}</b>',
-	'^bin/([^/]+)/(.-)%.a$', 'C library <b>{2}</b> compiled statically for <b>{1}</b>',
-	'^bin/([^/]+)/lib(.-)%.so$', 'C library <b>{2}</b> compiled dynamically for <b>{1}</b>',
-	'^bin/([^/]+)/lib(.-)%.dylib$', 'C library <b>{2}</b> compiled dynamically for <b>{1}</b>',
-	'^bin/([^/]+)/(.-)%.dll$', 'C library <b>{2}</b> compiled dynamically for <b>{1}</b>',
-	'^bin/([^/]+)/luajit', 'LuaJIT wrapper for <b>{1}</b>',
-	'^bin/([^/]+)/luajit-bin', 'LuaJIT executable for <b>{1}</b>',
-	'^bin/([^/]+)/luajit.exe', 'LuaJIT executable for <b>{1}</b>',
-	'^bin/(osx..)/luajit', 'LuaJIT wrapper for <b>{1}</b>',
-	'^csrc/$', 'All C source files and build scripts for all packages',
-	'^csrc/([^/]+)/$', 'C sources & build scripts for <b>{1}</b>',
-	'^csrc/([^/]+)/WHAT$', 'WHAT file for <b>{1}</b>',
-	'^csrc/([^/]+)/LICENSE$', 'License file for <b>{1}</b>',
-	'^csrc/([^/]+)/COPYING', 'License file for <b>{1}</b>',
-	'^csrc/([^/]+)/build%-(.-)%.sh$', 'Build script for compiling <b>{1}</b> on <b>{2}</b>',
-	'^csrc/([^/]+)/build.sh$', 'Build script for compiling <b>{1}</b> on all platforms',
-	'^csrc/([^/]+)/.-%.[ch]$', 'C source file for <b>{1}</b>',
-	'^csrc/([^/]+).-/$', 'C source files for <b>{1}</b>',
-	'^media/$', 'All input data for tests and demos for all packages',
-	'^media/([^/]+)/$', 'Data files for package <b>{1}</b>',
-	'^media/([^/]+)/.-/$', 'Data files for package <b>{1}</b>',
-	'^media/([^/]+)/.-$', 'Data file for package <b>{1}</b>',
-	'^([^%.]+)/$', 'Submodules of <b>{1}</b>',
-	'(.-)_h%.lua$', 'FFI cdefs for <b>{1}</b>',
-	'(.-)_test%.lua$', 'Test script for <b>{1}</b>',
-	'(.-)_demo%.lua$', 'Demo app for <b>{1}</b>',
-	'(.-)_app%.lua$', 'Lua app called <b>{1}</b>',
-	'(.-)%.lua$', 'Lua module <b>{1}</b>',
-	'(.-)%.dasl$', 'Lua/DynASM module <b>{1}</b>',
-	'(.-)%.md$', 'Documentation for <b>{1}</b>',
-	'^luajit$', '<b class=important>LuaJIT loader for Linux and OSX<b>',
-	'^luajit32$', '<b class=important>LuaJIT 32bit mode loader for Linux and OSX<b>',
-	'^luajit.cmd$', '<b class=important>LuaJIT loader for Windows<b>',
-	'^luajit32.cmd$', '<b class=important>LuaJIT 32bit loader for Windows<b>',
-}
-local function pass(format, ...)
-	if not ... then return end
-	local t = glue.pack(...)
-	return format:gsub('{(%d)}', function(n)
-		return t[tonumber(n)]:gsub('/', '.')
-	end)
-end
-path_description = memoize(function(path)
-	for i=1,#path_match,2 do
-		local patt, format = path_match[i], path_match[i+1]
-		local s = pass(format, path:match(patt))
-		if s then return s end
-	end
 end)
 
 
