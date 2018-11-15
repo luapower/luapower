@@ -1977,8 +1977,8 @@ local function key(key, t) return t and t[key] end
 license = memoize_package(function(package)
 	return
 		key('license', doc_tags(package, package)) or
-		key('license', module_header(package, package)) or
 		key('license', what_tags(package)) or
+		key('license', module_header(package, package)) or
 		default_license
 end)
 
