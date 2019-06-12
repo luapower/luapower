@@ -2102,13 +2102,16 @@ build_order = memoize(function(packages, platform)
 			end
 		end
 		if guard then
-			dt.circular = true --circular dependencies found
+			dt.circular_deps = t --circular dependencies found
 			break
 		end
 	end
 	return dt
 end)
 
+build_circular_deps = function(...)
+	return build_order(...).circular_deps
+end
 
 --consistency checks
 --============================================================================
