@@ -524,6 +524,8 @@ local function install_trackers(builtin_modules, filter)
 	--loader_m is an optional "loader" module that needs to be loaded
 	--before m can be loaded (eg. for loading .dasl files, see dynasm).
 	function track_module(m, loader_m)
+		--TODO: LuaSec clib modules crash if not loaded in specific order.
+		if m:find'^ssl%.' then return end
 		if loader_m then
 			local ok, err = pcall(require, loader_m)
 			if not ok then --put the error on the account of mod
@@ -1201,6 +1203,8 @@ local function modules_(package, platform, should_be_module)
 					else
 						add_module(mod, plat, path)
 					end
+				else
+					add_module(mod, plat, path)
 				end
 			end
 		end
