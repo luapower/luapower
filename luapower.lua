@@ -292,14 +292,14 @@ mgit_dir = '.mgit'     --relative to luapower_dir
 --platforms
 supported_os_list = {'mingw', 'linux', 'osx'}
 supported_os_platforms = {
-	mingw = {mingw32 = true, mingw64 = true},
-	linux = {linux32 = true, linux64 = true},
-	osx   = {osx32 = true, osx64 = true},
+	mingw = {mingw64 = true},
+	linux = {linux64 = true},
+	osx   = {osx64 = true},
 }
 supported_platforms = {
-	mingw32 = true, mingw64 = true,
-	linux32 = true, linux64 = true,
-	osx32 = true, osx64 = true,
+	mingw64 = true,
+	linux64 = true,
+	osx64 = true,
 }
 
 servers = {}           --{platform = {'ip|host', port}}
@@ -1153,7 +1153,12 @@ local function modules_(package, platform, should_be_module)
 		if found or plat then
 			local mod = module_name(path)
 			if mod and is_module(mod) == should_be_module then
-				if plat and not platform then
+				if plat and mod == 'ssl' then --TODO: support multi-module clibs
+					--glue.attr(t, 'ssl.config' )[plat] = path
+					--glue.attr(t, 'ssl.context')[plat] = path
+					--glue.attr(t, 'ssl.core'   )[plat] = path
+					--glue.attr(t, 'ssl.x509'   )[plat] = path
+				elseif plat and not platform then
 					if not t[mod] then
 						local pt = {}
 						t[mod] = pt
