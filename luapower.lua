@@ -292,14 +292,14 @@ mgit_dir = '.mgit'     --relative to luapower_dir
 --platforms
 supported_os_list = {'mingw', 'linux', 'osx'}
 supported_os_platforms = {
-	mingw = {mingw64 = true},
-	linux = {linux64 = true},
-	osx   = {osx64 = true},
+	mingw = {mingw32 = true, mingw64 = true},
+	linux = {linux32 = true, linux64 = true},
+	osx   = {osx32 = true, osx64 = true},
 }
 supported_platforms = {
-	mingw64 = true,
-	linux64 = true,
-	osx64 = true,
+	mingw32 = true, mingw64 = true,
+	linux32 = true, linux64 = true,
+	osx32 = true, osx64 = true,
 }
 
 servers = {}           --{platform = {'ip|host', port}}
