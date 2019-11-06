@@ -2011,6 +2011,13 @@ end)
 
 local function key(key, t) return t and t[key] end
 
+--author can be specified in the header of the main module file or in the .md file.
+author = memoize_package(function(package)
+	return
+		key('author', doc_tags(package, package)) or
+		key('author', module_header(package, package))
+end)
+
 --license can be specified in the header of the main module file
 --or in the .md file, otherwise the WHAT-file license is assumed,
 --and finally the default license is used as a fallback.
