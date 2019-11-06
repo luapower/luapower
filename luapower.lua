@@ -645,7 +645,7 @@ local function parse_module_header(file)
 		end
 		if s2 then
 			t.author, t.license =
-				s2:match'^%-%-[Ww]ritten [Bb]y%:? ([^%.]+)%.%s*([^%.]+)%.'
+				s2:match'^%-%-%s*[Ww]ritten [Bb]y%:? ([^%.]+)%.%s*([^%.]+)%.'
 			if t.license then
 				t.license = t.license:gsub('%s*[Ll]icense%s*', ''):gsub('%.', '')
 				if t.license:lower() == 'public domain' then
