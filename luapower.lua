@@ -658,7 +658,7 @@ local function parse_module_header(file)
 				s2:match'^%s*%-%-%s*[Ww]ritten [Bb]y%:? ([^%.]+)%.%s*([^%.]+)%.'
 			if not t.license then
 				t.author, t.license =
-					s2:match'^%s*%-%-%s*[Cc]opyright ([Cc])%s*([^%.]+)%.%s*([^%.]+)%.'
+					s2:match'^%s*%-%-%s*[Cc]opyright %([Cc]%)%s*([^%.]+)%.%s*([^%.]+)%.'
 			end
 			if t.license then
 				t.license = t.license:gsub('%s*[Ll]icense%s*', ''):gsub('%.', '')
