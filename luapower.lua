@@ -281,7 +281,7 @@ setfenv(1, luapower)
 local lfs = require'lfs'
 local glue = require'glue'
 local ffi = require'ffi'
-
+require'terra'
 
 --config
 ------------------------------------------------------------------------------
