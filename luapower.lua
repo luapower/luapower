@@ -708,23 +708,15 @@ local function parse_module_header(file)
 						if not s1 then
 							break
 						end
-						local s2 = s1:match('^(.-)%s*%]'..sep..'%]%s*$')  -- 's2 ]==]'
-						if s2 then
-							table.insert(dt, s2)
+						if not t.descr then
+							t.name, t.descr = parse_name_descr_line(s1)
+						end
+						if not t.license then
+							t.author, t.license = parse_author_license_line(s1)
+						end
+						table.insert(dt, s1)
+						if s1:match('^(.-)%s*%]'..sep..'%]%s*$') then -- ']==]'
 							break
-						else
-							local parsed
-							if not t.descr then
-								t.name, t.descr = parse_name_descr_line(s1)
-								parsed = t.descr
-							end
-							if not parsed and not t.license then
-								t.author, t.license = parse_author_license_line(s1)
-								parsed = t.license
-							end
-							if not parsed then
-								table.insert(dt, s1)
-							end
 						end
 					end
 					t.doc = table.concat(dt, '\n')
