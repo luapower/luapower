@@ -703,6 +703,7 @@ local function parse_module_header(file)
 				local sep = s1:match'%s*%-%-%[([=]*)%[%s*$' -- '--[==['
 				if sep then --in-header doc (terra/dynarray.lua).
 					local dt = {}
+					table.insert(dt, s1)
 					while true do
 						s1 = f:read'*l'
 						if not s1 then
