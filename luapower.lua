@@ -721,7 +721,6 @@ local function parse_module_header(file)
 						end
 					end
 					t.doc = table.concat(dt, '\n')
-					print(t.doc)
 				end
 			end
 		end
