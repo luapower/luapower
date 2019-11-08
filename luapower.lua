@@ -1414,8 +1414,7 @@ end)
 docheaders = memoize_opt_package(function(package)
 	local t = {}
 	for mod in pairs(modules(package)) do
-		local h = module_header(package, mod)
-		t[mod] = h.doc
+		t[mod] = module_header(package, mod)
 	end
 	return t
 end)
@@ -2495,6 +2494,5 @@ end
 --these stubs are implemented only in RPC luapower namespaces.
 function restart() error'not connected' end
 function stop() error'not connected' end
-
 
 return luapower
