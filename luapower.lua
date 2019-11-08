@@ -1411,10 +1411,13 @@ module_headers = memoize_package(function(package)
 	return t
 end)
 
-local docheaders = memoize_opt_package(function(package)
+docheaders = memoize_opt_package(function(package)
 	local t = {}
-	for i,h in ipairs(module_headers(package)) do
-		t[m] = h.doc
+	for mod in pairs(modules(package)) do
+		local h = module_header(package, mod)
+		if h and h.doc then
+			t[mod] = h.doc
+		end
 	end
 	return t
 end)
