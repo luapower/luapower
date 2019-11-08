@@ -718,7 +718,7 @@ local function parse_module_header(file)
 								t.name, t.descr = parse_name_descr_line(s1)
 								parsed = t.descr
 							end
-							if not t.license then
+							if not parsed and not t.license then
 								t.author, t.license = parse_author_license_line(s1)
 								parsed = t.license
 							end
@@ -728,6 +728,7 @@ local function parse_module_header(file)
 						end
 					end
 					t.doc = table.concat(dt, '\n')
+					print(t.doc)
 				end
 			end
 		end
