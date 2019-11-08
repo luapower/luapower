@@ -1399,9 +1399,9 @@ end)
 module_headers = memoize_package(function(package)
 	local t = {}
 	for mod in pairs(modules(package)) do
-		local dt = module_header(package, mod)
-		dt.module = mod
-		t[#t+1] = dt
+		local h = module_header(package, mod)
+		h.module = mod
+		t[#t+1] = h
 	end
 	table.sort(t, function(t1, t2)
 		local s1 = t1.name or t1.module
@@ -1415,9 +1415,7 @@ docheaders = memoize_opt_package(function(package)
 	local t = {}
 	for mod in pairs(modules(package)) do
 		local h = module_header(package, mod)
-		if h and h.doc then
-			t[mod] = h.doc
-		end
+		t[mod] = h.doc
 	end
 	return t
 end)
