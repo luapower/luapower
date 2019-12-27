@@ -341,7 +341,7 @@ end
 ------------------------------------------------------------------------------
 
 local nilval = setmetatable({}, {__pwrite = function(_, write) write'nilval' end})
-local caches = {}
+local caches = {} --{fname -> cache_t}
 local cache_dir
 local function get_cache_dir()
 	if not cache_dir then
@@ -412,13 +412,15 @@ end
 
 --clear memoization caches for a specific package or for all packages.
 function clear_cache(pkg)
-	for fname,cache in pairs(caches) do
+	local cache_dir = get_cache_dir()
+	for fname in fs.dir(cache_dir) do
+		if not fname then break end
 		if not pkg or glue.starts(fname, pkg..'-') then
-			if next(cache.retvals) then
-				cache.retvals = {}
-				if persistent_cache then
-					assert(fs.remove(cache.file))
-				end
+			if caches[fname] then
+				caches[fname].retvals = {}
+			end
+			if persistent_cache then
+				assert(fs.remove(plusfile(cache_dir, fname)))
 			end
 		end
 	end
