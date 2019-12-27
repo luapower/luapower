@@ -40,9 +40,6 @@ CONVENTIONS:
 
 	* submodules can be put in folders or named `<module>_<submodule>.lua`.
 
-	* platform-specific Lua modules are found in `bin/<platform>/lua/<module>.lua`.
-	currently only luajit's `vmdef.lua` file is in there.
-
 	* Lua/C modules are found in `bin/<platform>/clib/<module>.dll|.so`
 
 	* C sources can be described in the metafile `csrc/<package>/WHAT` which
@@ -98,12 +95,12 @@ STATIC INFO:
 
 	* luapower_dir -> s                     luapower dir
 	* mgit_dir -> s                         .mgit dir relative to luapower dir
-	* supported_os_platforms -> t           {os = {platform = true}}
-	* supported_platforms -> t              {platform = true}
-	* builtin_modules -> t                  {module = true}
-	* luajit_builtin_modules -> t           {module = true}
-	* loader_modules -> t                   {file_ext = loader_module_name}
-	* enviornments -> t                     {loader_module_name = env_name}
+	* supported_os_platforms -> t           {os -> {platform -> true}}
+	* supported_platforms -> t              {platform -> true}
+	* builtin_modules -> t                  {module -> true}
+	* luajit_builtin_modules -> t           {module -> true}
+	* loader_modules -> t                   {file_ext -> loader_module_name}
+	* enviornments -> t                     {loader_module_name -> env_name}
 	* default_license -> s                  default license
 
 SOURCES OF INFORMATION:
@@ -149,38 +146,38 @@ PLATFORM:
 
 MGIT DIRECTORY INFO:
 
-	known_packages() -> t                 {name=true}
-	installed_packages() -> t             {name=true}
-	not_installed_packages() -> t         {name=true}
+	known_packages() -> t                 {name -> true}
+	installed_packages() -> t             {name -> true}
+	not_installed_packages() -> t         {name -> true}
 
 PARSING luapower-cat.md:
 
 	cats() -> t                           {name=, packages={{name=,note=},...}}
-	packages_cats() -> t                  {pkg=cat}
+	packages_cats() -> t                  {pkg -> cat}
 	package_cat(pkg) -> s                 package's category
 
 TRACKED FILES BREAKDOWN:
 
-	tracked_files([package]) -> t         {path=package}
-	docs([package]) -> t                  {name=path}
-	headerdocs([package]) -> t            {name=contents}
-	modules([package]) -> t               {name=path}
-	scripts([package]) -> t               {name=path}
-	file_types([package]) -> t            {path='module'|'script'|...}
+	tracked_files([package]) -> t         {path -> package}
+	docs([package]) -> t                  {name -> path}
+	headerdocs([package]) -> t            {name -> contents}
+	modules([package]) -> t               {name -> path}
+	scripts([package]) -> t               {name -> path}
+	file_types([package]) -> t            {path -> 'module'|'script'|...}
 	module_tree(package) -> t             {name=, children=}
 
 PARSING MD FILES:
 
-	docfile_tags(path) -> t               {tag=val}
-	doc_tags([package], doc) -> t         {tag=val}
+	docfile_tags(path) -> t               {tag -> val}
+	doc_tags([package], doc) -> t         {tag -> val}
 
 PARSING LUA FILES:
 
-	module_requires_runtime(module) -> t  {module=true}
+	module_requires_runtime(module) -> t  {module -> true}
 
 	modulefile_header(file) -> t          {name=, descr=, author=, license=}
 	module_header([package], mod) -> t    {name=, descr=, author=, license=}
-	module_headers(package) -> t          {module=header_table}
+	module_headers(package) -> t          {module -> header_table}
 
 PACKAGE REVERSE LOOKUP:
 
@@ -192,11 +189,11 @@ CSRC DIRECTORY:
 
 	what_tags(package) -> t               {realname=,version=,url=,license=,
 	                                        dependencies={platf={dep=true}}}
-	bin_deps(package, platform) -> t      {platform={package=}}
-	build_platforms(package) -> t         {platform=true}
-	bin_platforms(package) -> t           {platform=true}
-	declared_platforms(package) -> t      {platform=true}
-	platforms(package) -> t               {platform=true}
+	bin_deps(package, platform) -> t      {platform -> {package=}}
+	build_platforms(package) -> t         {platform -> true}
+	bin_platforms(package) -> t           {platform -> true}
+	declared_platforms(package) -> t      {platform -> true}
+	platforms(package) -> t               {platform -> true}
 
 GIT INFO:
 
@@ -211,8 +208,8 @@ GIT INFO:
 MODULE DEPENDENCY TRACKING:
 
 	module_loader(mod[, package]) -> s    find a module's loader module if any
-	track_module(mod[, package]) -> t     {loaderr=s | mdeps={mod=true},
-	                                        ffi_deps={mod=true}}
+	track_module(mod[, package]) -> t     {loaderr=s | mdeps={mod -> true},
+	                                        ffi_deps={mod -> true}}
 UPDATING THE DEPENDENCY DB:
 
 	load_db()                             load luapower_db.lua
@@ -221,7 +218,7 @@ UPDATING THE DEPENDENCY DB:
 	update_db_on_current_platform([pkg])  update db with local trackings
 	update_db(package, [platform], [mod]) update db with local or rpc trackings
 	track_module_platform(mod, [package], [platform])
-	server_status([platform]) -> t        {platform = {os=, arch=}}
+	server_status([platform]) -> t        {platform -> {os=, arch=}}
 
 DEPENDENCY INFO BREAKDOWN:
 
@@ -270,7 +267,7 @@ CONSISTENCY CHECKS:
 
 	duplicate_docs()
 	undocumented_package(package)
-	load_errors([package], [platform])->t {mod=err}
+	load_errors([package], [platform])->t {mod -> err}
 
 GENERATING MGIT DEPS FILES:
 
@@ -278,7 +275,7 @@ GENERATING MGIT DEPS FILES:
 
 RPC API:
 
-	connect(ip, port[, connect])->lp   connect to a RPC server
+	connect(ip, port[, connect]) -> lp    connect to a RPC server
 	lp.osarch() -> os, arch
 	lp.exec(func, ...) -> ...
 	lp.restart()
@@ -302,15 +299,22 @@ mgit_dir = '.mgit'     --relative to luapower_dir
 
 --platforms
 supported_os_list = {'mingw', 'linux', 'osx'}
+supported_os_platform_list = {
+	mingw = {'mingw64'},
+	linux = {'linux64'},
+	osx   = {'osx64'},
+}
+supported_platform_list = {'mingw64', 'linux64', 'osx64'}
+
 supported_os_platforms = {
-	mingw = {mingw32 = true, mingw64 = true},
-	linux = {linux32 = true, linux64 = true},
-	osx   = {osx32 = true, osx64 = true},
+	mingw = {mingw64 = true},
+	linux = {linux64 = true},
+	osx   = {osx64 = true},
 }
 supported_platforms = {
-	mingw32 = true, mingw64 = true,
-	linux32 = true, linux64 = true,
-	osx32 = true, osx64 = true,
+	mingw64 = true,
+	linux64 = true,
+	osx64 = true,
 }
 
 servers = {}           --{platform = {'ip|host', port}}
@@ -489,6 +493,7 @@ local function install_trackers(builtin_modules, filter)
 				local perr =
 					   err:match'platform not .*'
 					or err:match'arch not .*'
+					or err:match'runtime not .*'
 					--TODO: pre-load these modules...
 					--or err:match'[^%s]+ not loaded$'
 				err = perr or err
@@ -871,9 +876,6 @@ end
 
 --path/*.lua -> Lua module name
 local function lua_module_name(path)
-	if path:find'^bin/[^/]+/lua/' then --platform-specific module
-		path = path:gsub('^bin/[^/]+/lua/', '')
-	end
 	return path:gsub('/', '.'):match('(.-)%.lua$')
 end
 
@@ -891,9 +893,6 @@ end
 
 --path/*.t -> Terra module name
 local function terra_module_name(path)
-	if path:find'^bin/[^/]+/lua/' then --platform-specific module
-		path = path:gsub('^bin/[^/]+/lua/', '')
-	end
 	return path:gsub('/', '.'):match('(.-)%.t$')
 end
 
@@ -1209,7 +1208,7 @@ end)
 --tracked files breakdown: modules, scripts, docs
 ------------------------------------------------------------------------------
 
---check if a path is valid for containing (non-platform-specific) modules.
+--check if a path is valid for containing Lua or Terra modules.
 local function is_module_path(p)
 	return not p or not (
 		   p:find'^bin/'    --can't have modules in bin
@@ -1225,8 +1224,7 @@ end
 --(optionally test for a specific platform) and return that platform.
 local function module_platform_path(p, platform)
 	platform = platform and check_platform(platform) or '[^/]+'
-	local plat = p:match('^bin/('..platform..')/clib/') --Lua/C modules
-	return plat or p:match('^bin/('..platform..')/lua/') --platform Lua modules
+	return p:match('^bin/('..platform..')/clib/') --Lua/C modules
 end
 
 --check if a path is valid for containing docs.
