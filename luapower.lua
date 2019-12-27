@@ -15,20 +15,13 @@ CONVENTIONS:
 	* the git work-dir is shared between all packages and it's the current
 	directory by default and is configured in luapower.luapower_dir.
 
-	* the currently supported platforms are in the luapower.platforms table.
+	* the currently supported platforms are in luapower.supported_platforms table.
 
-	* a module can signal that it doesn't support a platform by raising
-	an error containing the string 'platform not ' or 'arch not ' upon loading.
-
-	* a module can signal that it doesn't support the luajit runtime by
-	raising an error containing the string 'runtime not ' upon loading.
-
-	* a module can signal that it's not a module but actually an app by
-	asserting it with assert(... ~= <module_name>, 'not a module').
+	* a module can signal that it doesn't support the current platform by
+	raising an error containing the 'platform not ' or 'arch not ' upon loading.
 
 	* a module can signal that it requires a global variable that is set
-	by loading another module by raising an error ending with the string
-		'<module_name> not loaded'.
+	by loading another module by raising the error '<module_name> not loaded'.
 
 	* a module's runtime dependencies that are bound to module keys can be
 	declared in its `__autoload` metatable field (see glue.autoload).
@@ -52,10 +45,10 @@ CONVENTIONS:
 		requires: package1, package2 (platform1 platform2 ...), ...
 
 	* The WHAT file can also be used to describe Lua modules that are
-	developed outside of luapower (eg. `lexer`).
+	developed outside of luapower.
 
 	* packages can be organized into categories in the markdown file
-	`.mgit/luapower-cat.md` which must contain a two-level deep bullet list.
+	`.mgit/*-cat.md` which must contain a two-level deep bullet list.
 	Any packages that are not listed there will be added automatically to the
 	`Misc` category.
 
@@ -64,8 +57,7 @@ CONVENTIONS:
 	* not installed packages are those known but not installed.
 
 	* modules can be anywhere in the tree except in `csrc`, `media`, `.mgit`,
-	`bin`, `tmp` (but they can be in `bin/<platform>/clib` and
-	`bin/<platform>/lua`).
+	`bin`, `tmp`, `logs`, `*-www` and they can be in `bin/<platform>/clib`.
 
 	* docs are `*.md` files in Pandoc Markdown format and can be anywhere in
 	the tree where modules can be.
@@ -117,7 +109,7 @@ SOURCES OF INFORMATION:
 	* the list of `.mgit/<package>` directories
 	* the parsing of `csrc/<package>/WHAT` file
 	* tags parsed from *.md files
-	* package category associations parsed from `.mgit/luapower-cat.md`
+	* package category associations parsed from `.mgit/*-cat.md`
 	* the output of `git ls-files` (tracked files)
 	* the output of `git describe --tags --long --always` (package version)
 	* the output of `git --tags --simplify-by-decoration --pretty=%d` (tags)
@@ -153,7 +145,7 @@ MGIT DIRECTORY INFO:
 	installed_packages() -> t             {name -> true}
 	not_installed_packages() -> t         {name -> true}
 
-PARSING luapower-cat.md:
+PARSING *-cat.md:
 
 	cats() -> t                           {name=, packages={{name=,note=},...}}
 	packages_cats() -> t                  {pkg -> cat}
@@ -486,7 +478,8 @@ local function install_trackers(builtin_modules, filter)
 	--find Lua dependencies of a module by tracing its `require` calls.
 
 	local parents = {} --{module1, ...}
-	local dt = {} --{module = dep_table}
+	local dt = {} --{module -> dep_table}
+	local loaders = {} --{loader_module1, ...}
 	local lua_require = require
 
 	function require(m)
@@ -521,19 +514,17 @@ local function install_trackers(builtin_modules, filter)
 			   --cache the error for future calls.
 				local err = ret:gsub(':?%s*[\n\r].*', '')
 				err = err:gsub('^.-[\\/]%.%.[\\/]%.%.[\\/]', '')
-				--remove source info for platform, arch and runtime load errors
-				local perr =
-					   err:match'platform not .*'
-					or err:match'arch not .*'
-					or err:match'runtime not .*'
-					--TODO: pre-load these modules...
-					--or err:match'[^%s]+ not loaded$'
-				err = perr or err
-				if not perr then
-					--TODO: remove this
-					--print(string.format('%-20s: %s', m, err))
+				local loader_m = err:match'([^%s]+) not loaded$'
+				if loader_m then
+					loaders[#loaders+1] = loader_m
+				else
+					--remove source info for platform and arch load errors
+					local err =
+							err:match'platform not .*'
+						or err:match'arch not .*'
+						or err
+					dt[m] = {loaderr = err}
 				end
-				dt[m] = {loaderr = err}
 			end
 		end
 
@@ -579,19 +570,11 @@ local function install_trackers(builtin_modules, filter)
 	--track a module, tracing its require and ffi.load calls.
 	--loader_m is an optional "loader" module that needs to be loaded
 	--before m can be loaded (eg. for loading .dasl files, see dynasm).
-	function track_module(m, loader_m)
+	function track_module(m)
 		--TODO: LuaSec clib modules crash if not loaded in specific order.
-		if m:find'^ssl%.' then return end
-		if loader_m then
-			local ok, err = pcall(require, loader_m)
-			if not ok then
-				--put the error on the account of mod
-				dt[m] = {loaderr = err} --clear deps
-				return dt[m]
-			end
-		end
+		if m:find'^ssl%.' then return {}, loaders end
 		pcall(require, m)
-		return dt[m]
+		return dt[m], loaders
 	end
 
 end
@@ -613,15 +596,37 @@ end
 
 --track a module in the tracking Lua state which is reused on future calls.
 --different states are created for different environments.
-local function track_module(m, loader_m, env)
+local function track_module_(m, loaders, env)
 	assert(m, 'module required')
 	local state = tracking_state(env)
+	if loaders then
+		for _,loader_m in ipairs(loaders) do
+			state:getglobal'track_module'
+			local deps, found_loaders = state:call(loader_m)
+			if deps.loaderr then
+				return deps, found_loaders
+			end
+		end
+	end
 	state:getglobal'track_module'
-	local ret = state:call(m, loader_m)
+	local deps, found_loaders = state:call(m)
 	state:close()
-	return ret
+	return deps, found_loaders
 end
 
+--track a module and if it requires other modules to be loaded before it,
+--then retry with loading those first.
+local function track_module(m, loader_m, env)
+	local loaders = {loader_m}
+	local deps, found_loaders = track_module_(m, loaders, env)
+	if not deps.loaderr then
+		while #found_loaders > 0 do
+			glue.extend(loaders, found_loaders)
+			deps, found_loaders = track_module_(m, loaders, env)
+		end
+	end
+	return deps
+end
 
 --dependency tracking based on parsing
 ------------------------------------------------------------------------------
@@ -1140,41 +1145,46 @@ end
 
 --parse the table of contents file into a list of categories and docs.
 cats = memoize_package('cats', function(package)
-	local more, close = assert(more(powerpath(mgitpath'luapower-cat.md')))
 	local cats = {}
-	local lastcat
-	local misc
 	local pkgs = filter(installed_packages(),
 		function(pkg) return known_packages()[pkg] end)
 	local uncat = glue.update({}, pkgs)
-	for s in more do
-		local pkg, note =
-			s:match'^%s*%*%s*%[([^%]]+)%]%s*(.-)%s*$' -- " * [name]"
-		if pkg then
-			if pkgs[pkg] then --skip unknown packages (typos, etc.)
-				note = note ~= '' and note or nil
-				table.insert(lastcat.packages, {name = pkg, note = note})
-				uncat[pkg] = nil
-			end
-		else
-			local cat = s:match'^%s*%*%s*(.-)%s*$' -- " * name"
-			if cat then
-				lastcat = {name = cat, packages = {}}
-				table.insert(cats, lastcat)
-				if cat == 'Misc' then
-					misc = lastcat
+	for file in fs.dir(mgitpath()) do
+		if not file then break end
+		if file:find'%-cat%.md$' then
+			local more, close = assert(more(powerpath(mgitpath(file))))
+			local lastcat
+			for s in more do
+				local pkg, note =
+					s:match'^%s*%*%s*%[([^%]]+)%]%s*(.-)%s*$' -- " * [name]"
+				if pkg then
+					if pkgs[pkg] then --skip unknown packages (typos, etc.)
+						note = note ~= '' and note or nil
+						table.insert(lastcat.packages, {name = pkg, note = note})
+						uncat[pkg] = nil
+					end
+				else
+					local cat = s:match'^%s*%*%s*(.-)%s*$' -- " * name"
+					if cat then
+						lastcat = cats[cat]
+						if not lastcat then
+							lastcat = {name = cat, packages = {}}
+							table.insert(cats, lastcat)
+							cats[cat] = lastcat
+						end
+					end
 				end
 			end
+			close()
 		end
 	end
-	if not misc and next(uncat) then
+	if next(uncat) then
 		local misc = {}
 		for i, pkg in ipairs(glue.keys(uncat, true)) do
 			table.insert(misc, {name = pkg})
 		end
 		table.insert(cats, {name = 'Misc', packages = misc})
 	end
-	close()
 	return cats
 end)
 
@@ -1718,11 +1728,6 @@ environments = {
 	terra = 'terra',
 }
 
-runtimes = {
-	luajit = true,
-	nginx = true,
-}
-
 function module_loader(mod, package)
 	package = package or module_package(mod)
 	local path = modules(package)[mod]
@@ -1907,8 +1912,7 @@ end
 
 --list of a module's supported platforms, which is a subset of it's package's
 --supported platforms. a module can signal that it doesn't support a specific
---platform by raising an error containing 'platform not ' or 'arch not ',
---and can signal that it's not a module by raising 'not a module'.
+--platform by raising an error containing 'platform not ' or 'arch not '.
 module_platforms = memoize_mod_package('module_platforms', function(mod, package)
 	package = package or module_package(mod)
 	local t = {}
@@ -1919,10 +1923,8 @@ module_platforms = memoize_mod_package('module_platforms', function(mod, package
 	for platform in pairs(platforms) do
 		local err = module_load_error(mod, package, platform)
 		if not err or not (
-			err:find'platform not '
+			   err:find'platform not '
 			or err:find'arch not '
-			or err:find'runtime not '
-			or err:find'not a module'
 		) then
 			t[platform] = true
 		end
@@ -2321,7 +2323,6 @@ load_errors = memoize_opt_package('load_errors', function(package, platform)
 		if err and not (
 			   err:find'platform not '
 			or err:find'arch not '
-			or err:find'runtime not '
 		)
 		then
 			errs[mod] = err
