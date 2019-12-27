@@ -135,8 +135,8 @@ UTILS:
 
 CACHING:
 
-	memoize_package(f) -> f               memoize a f(pkg[, arg2]) func
-	memoize(f) -> f                       memoize any func
+	memoize_package(fname, f) -> f        memoize a f(pkg[, arg2]) func
+	memoize(fname, f) -> f                memoize any func
 	clear_cache([pkg])                    clear memoize cache for a pkg or all
 
 PLATFORM:
@@ -286,9 +286,10 @@ RPC API:
 local luapower = setmetatable({}, {__index = _G})
 setfenv(1, luapower)
 
-local fs = require'fs'
-local glue = require'glue'
 local ffi = require'ffi'
+local glue = require'glue'
+local pp = require'pp'
+local fs = require'fs'
 
 --config
 ------------------------------------------------------------------------------
@@ -341,63 +342,65 @@ function mgitpath(file)
 end
 
 
---memoize pattern with total and partial cache invalidation
+--persistent memoization with per-package cache invalidation.
 ------------------------------------------------------------------------------
 
---memoize function that cannot have its cache cleared.
-local memoize_permanent = glue.memoize
-
---memoize for functions where the first arg is an optional package name.
---cache on those functions can be cleared for individual packages.
-local pkg_caches = {} --{func -> {pkg -> val}}
-local nilkey = {}
-function memoize_package(func)
+local nilval = setmetatable({}, {__pwrite = function(_, write) write'nilval' end})
+local caches = {}
+function memoize(fname, func)
+	local cache_dir = powerpath'tmp/luapower'
+	assert(fs.mkdir(cache_dir, true))
+	local cache_file = plusfile(cache_dir, fname)
 	local cache = {}
-	pkg_caches[func] = cache
-	return function(pkg, ...)
-		local k = pkg == nil and nilkey or pkg
-		local fn = cache[k]
-		if not fn then
-			fn = glue.memoize(function(...)
-				return func(pkg, ...)
-			end)
-			cache[k] = fn
+	caches[fname] = cache
+	cache.args = glue.tuples()
+	cache.file = cache_file
+	cache.retvals = {}
+	if fs.is(cache_file, 'file') then
+		local s = assert(glue.readfile(cache_file))
+		local pnilval, pcache = loadstring('local nilval={};return nilval,'..s)()
+		for args, ret in pairs(pcache) do
+			if ret == pnilval then ret = nilval end
+			local args = setmetatable(cache.args(glue.unpack(args)), nil)
+			cache.retvals[args] = ret
 		end
-		return fn(...)
+	end
+	return function(...)
+		local cache = caches[fname]
+		local args = setmetatable(cache.args(...), nil)
+		local ret = cache.retvals[args]
+		if ret == nil then
+			ret = func(...)
+			cache.retvals[args] = ret == nil and nilval or ret
+			if persistent_cache then
+				glue.writefile(cache.file, pp.format(cache.retvals))
+			end
+		elseif ret == nilval then
+			ret = nil
+		end
+		return ret
 	end
 end
 
---generic memoize that can only have its entire cache cleared.
-local rememoizers = {}
-function memoize(func)
-	local memfunc
-	local function rememoize()
-		memfunc = glue.memoize(func)
-	end
-	rememoize()
-	rememoizers[func] = rememoize
-	return function(...)
-		return memfunc(...)
+--memoize for functions where the first arg is an optional package name.
+--cache on those functions can be cleared for individual packages.
+function memoize_package(fname, func)
+	local funcs = {}
+	return function(pkg, ...)
+		local fname = (pkg and pkg..'-' or '')..fname
+		funcs[fname] = funcs[fname] or memoize(fname, func)
+		return funcs[fname](pkg, ...)
 	end
 end
 
 --clear memoization caches for a specific package or for all packages.
 function clear_cache(pkg)
-	if pkg then
-		for _, cache in pairs(pkg_caches) do
-			cache[pkg] = nil
-		end
-	else
-		for _, cache in pairs(pkg_caches) do
-			for pkg in pairs(cache) do
-				cache[pkg] = nil
-			end
+	for fname,cache in pairs(caches) do
+		if not pkg or glue.starts(fname, pkg..'-') then
+			cache.retvals = {}
+			assert(fs.remove(cache.file))
 		end
 	end
-	for _, rememoize in pairs(rememoizers) do
-		rememoize()
-	end
-	collectgarbage() --unload modules from the tracking Lua state
 end
 
 --other helpers
@@ -421,7 +424,7 @@ end
 --detect current platform
 
 local platos = {Windows = 'mingw', Linux = 'linux', OSX = 'osx'}
-current_platform = memoize_permanent(function()
+current_platform = memoize('current_platform', function()
 	return glue.assert(platos[ffi.os], 'unknown OS %s', ffi.os)
 		..(ffi.abi'32bit' and '32' or '64')
 end)
@@ -604,7 +607,7 @@ luajit_builtin_modules = {
 	['thread.exdata'] = true,
 }
 
-module_requires_runtime_parsed = memoize(function(m) --direct dependencies
+module_requires_runtime_parsed = memoize('module_requires_runtime_parsed', function(m) --direct dependencies
 	local t = {}
 	if builtin_modules[m] or luajit_builtin_modules[m] then
 		return t
@@ -1097,7 +1100,7 @@ end
 ------------------------------------------------------------------------------
 
 --parse the table of contents file into a list of categories and docs.
-cats = memoize_package(function(package)
+cats = memoize_package('cats', function(package)
 	local more, close = assert(more(powerpath(mgitpath'luapower-cat.md')))
 	local cats = {}
 	local lastcat
@@ -1145,7 +1148,7 @@ end)
 ------------------------------------------------------------------------------
 
 --.mgit/<name>.origin -> {name = true}
-known_packages = memoize(function()
+known_packages = memoize('known_packages', function()
 	local t = {}
 	for f in dir(powerpath(mgitpath())) do
 		local s = f:match'^(.-)%.origin$'
@@ -1155,7 +1158,7 @@ known_packages = memoize(function()
 end)
 
 --.mgit/<name>/ -> {name = true}
-installed_packages = memoize(function()
+installed_packages = memoize('installed_packages', function()
 	local t = {}
 	for f, _, ftype in dir(powerpath(mgitpath())) do
 		if ftype == 'dir' and fs.is(powerpath(git_dir(f)), 'dir')
@@ -1167,7 +1170,7 @@ installed_packages = memoize(function()
 end)
 
 --(known - installed) -> not installed
-not_installed_packages = memoize(function()
+not_installed_packages = memoize('not_installed_packages', function()
 	local installed = installed_packages()
 	return filter(known_packages(),
 		function(pkg) return not installed[pkg] end)
@@ -1191,12 +1194,12 @@ local function opt_package(func)
 end
 
 --memoize for functions where the first arg, package, is optional.
-local function memoize_opt_package(func)
-	return memoize(opt_package(memoize_package(func)))
+local function memoize_opt_package(fname, func)
+	return memoize(fname..'_opt_package', opt_package(memoize_package(fname, func)))
 end
 
 --git ls-files -> {path = package}
-tracked_files = memoize_opt_package(function(package)
+tracked_files = memoize_opt_package('tracked_files', function(package)
 	local t = {}
 	for path in gitlines(package, 'ls-files') do
 		t[path] = package
@@ -1250,7 +1253,7 @@ local function doc_name(path)
 end
 
 --tracked <doc>.md -> {doc = path}
-docs = memoize_opt_package(function(package)
+docs = memoize_opt_package('docs', function(package)
 	local t = {}
 	for path in pairs(tracked_files(package)) do
 		if is_doc_path(path) then
@@ -1311,17 +1314,17 @@ end
 --tracked <mod>.lua | bin/<platform>/clib|lua/<mod>.so|.lua -> {mod=path}
 --note: platform is optional: if not given, for the platform-specific modules
 --all the paths are returned in a table {platform = path}.
-modules = memoize_opt_package(function(package, platform)
+modules = memoize_opt_package('modules', function(package, platform)
 	return modules_(package, platform, true)
 end)
 
 --tracked <script>.lua -> {script = path}
-scripts = memoize_opt_package(function(package)
+scripts = memoize_opt_package('scripts', function(package)
 	return modules_(package, nil, false)
 end)
 
 --tracked file -> {path = 'module'|'script'|'doc'|'unknown'}
-file_types = memoize_opt_package(function(package)
+file_types = memoize_opt_package('file_types', function(package)
 	local t = {}
 	for path in pairs(tracked_files(package)) do
 		if is_module_path(path) then
@@ -1351,10 +1354,10 @@ local function module_parent_(package, mod)
 	return modules(package)[parent] and parent
 		or module_parent_(package, parent)
 end
-local module_parent = memoize_package(module_parent_)
+local module_parent = memoize_package('module_parent', module_parent_)
 
 --build a module tree for a package (or for all packages)
-module_tree = memoize_package(function(package, platform)
+module_tree = memoize_package('module_tree', function(package, platform)
 	local function get_names() return pairs(modules(package, platform)) end
 	local function get_parent(mod) return module_parent(package, mod) end
 	return build_tree(get_names, get_parent)
@@ -1363,10 +1366,10 @@ end)
 --doc tags
 ------------------------------------------------------------------------------
 
-docfile_tags = memoize(parse_md_file)
+docfile_tags = memoize('docfile_tags', parse_md_file)
 
 --tracked <doc>.md -> {title='', other yaml tags...}
-doc_tags = memoize_package(function(package, doc)
+doc_tags = memoize_package('doc_tags', function(package, doc)
 	local path = docs(package)[doc]
 	return path and docfile_tags(powerpath(path))
 end)
@@ -1375,14 +1378,14 @@ end)
 --module header tags
 ------------------------------------------------------------------------------
 
-modulefile_header = memoize(parse_module_header)
+modulefile_header = memoize('modulefile_header', parse_module_header)
 
-module_header = memoize_package(function(package, mod)
+module_header = memoize_package('module_header', function(package, mod)
 	local path = modules(package)[mod]
 	return type(path) == 'string' and modulefile_header(powerpath(path)) or {}
 end)
 
-module_headers = memoize_package(function(package)
+module_headers = memoize_package('module_headers', function(package)
 	local t = {}
 	for mod in pairs(modules(package)) do
 		local h = module_header(package, mod)
@@ -1397,7 +1400,7 @@ module_headers = memoize_package(function(package)
 	return t
 end)
 
-docheaders = memoize_opt_package(function(package)
+docheaders = memoize_opt_package('docheaders', function(package)
 	local t = {}
 	for mod in pairs(modules(package)) do
 		t[mod] = module_header(package, mod)
@@ -1429,7 +1432,7 @@ local known_module_packages = {
 }
 
 --find the pacakge which contains a specific module.
-module_package = memoize(function(mod)
+module_package = memoize('module_package', function(mod)
 	assert(mod, 'module required')
 	--shortcut: builtin module
 	if builtin_modules[mod] then return end --no reporting for Lua built-ins
@@ -1451,8 +1454,8 @@ end)
 
 --memoize for functions of type f(mod, package) where package is optional.
 --like memoize_package() but for when the package arg is the second arg.
-local function memoize_mod_package(func)
-	local memfunc = memoize_package(function(package, mod)
+local function memoize_mod_package(fname, func)
+	local memfunc = memoize_package(fname, function(package, mod)
 		return func(mod, package)
 	end)
 	return function(mod, package)
@@ -1485,7 +1488,7 @@ local function ffi_module_in_package(mod, package, platform)
 	return tracked_files(package)[path] and true or false
 end
 
-ffi_module_package = memoize(function(mod, package, platform, ...)
+ffi_module_package = memoize('ffi_module_package', function(mod, package, platform, ...)
 	platform = check_platform(platform)
 	--shortcut: try current package.
 	if package and ffi_module_in_package(mod, package, platform) then
@@ -1510,20 +1513,20 @@ end)
 ------------------------------------------------------------------------------
 
 --check if the package has a dir named `csrc/PACKAGE`, and return that path.
-local csrc_dir = memoize_package(function(package)
+local csrc_dir = memoize_package('csrc_dir', function(package)
 	if fs.is(powerpath('csrc/'..package), 'dir') then
 		return 'csrc/'..package
 	end
 end)
 
 --csrc/*/WHAT -> {tag=val,...}
-what_tags = memoize_package(function(package)
+what_tags = memoize_package('what_tags', function(package)
 	if not csrc_dir(package) then return end
 	local what_file = powerpath(csrc_dir(package) .. '/WHAT')
 	return glue.canopen(what_file) and parse_what_file(what_file)
 end)
 
-local has_luac_modules = memoize_package(function(package)
+local has_luac_modules = memoize_package('has_luac_modules', function(package)
 	for mod, path in pairs(modules(package)) do
 		if c_module_name(tostring(path)) then
 			return true
@@ -1533,7 +1536,7 @@ end)
 
 --package dependencies as declared in the WHAT file.
 --they can also be declared in the header section of the package doc file.
-bin_deps = memoize_package(function(package, platform)
+bin_deps = memoize_package('bin_deps', function(package, platform)
 	platform = check_platform(platform)
 	local t1 = what_tags(package) and what_tags(package).dependencies
 	local t2 = doc_tags(package, package) and doc_tags(package, package).dependencies
@@ -1548,7 +1551,7 @@ end)
 
 --supported platforms can be inferred from the name of the build script:
 --csrc/*/build-<platform>.sh -> {platform = true,...}
-build_platforms = memoize_opt_package(function(package)
+build_platforms = memoize_opt_package('build_platforms', function(package)
 	local t = {}
 	if csrc_dir(package) then
 		for path in pairs(tracked_files(package)) do
@@ -1565,7 +1568,7 @@ build_platforms = memoize_opt_package(function(package)
 end)
 
 --platforms can also be inferred from the presence of files in bin/<platform>.
-bin_platforms = memoize_opt_package(function(package)
+bin_platforms = memoize_opt_package('bin_platforms', function(package)
 	local t = {}
 	for path in pairs(tracked_files(package)) do
 		local platform = path:match('^bin/([^/]+)/.')
@@ -1578,7 +1581,7 @@ end)
 
 --platforms can be specified in the 'platforms' tag of the package doc file:
 --<package>.md:platforms -> {platform = true,...}
-declared_platforms = memoize_opt_package(function(package)
+declared_platforms = memoize_opt_package('declared_platforms', function(package)
 	local t = {}
 	local tags = doc_tags(package, package)
 	if tags and tags.platforms then
@@ -1597,7 +1600,7 @@ declared_platforms = memoize_opt_package(function(package)
 	return t
 end)
 
-platforms = memoize_opt_package(function(package)
+platforms = memoize_opt_package('platforms', function(package)
 	return glue.update({},
 		build_platforms(package),
 		bin_platforms(package),
@@ -1609,12 +1612,12 @@ end)
 ------------------------------------------------------------------------------
 
 --current git version
-git_version = memoize_package(function(package)
+git_version = memoize_package('git_version', function(package)
 	return git(package, 'describe --tags --long --always')
 end)
 
 --list of tags in order
-git_tags = memoize_package(function(package)
+git_tags = memoize_package('git_tags', function(package)
 	local t = {}
 	local opt = 'log --tags --simplify-by-decoration --pretty=%d'
 	for s in gitlines(package, opt) do
@@ -1627,11 +1630,11 @@ git_tags = memoize_package(function(package)
 end)
 
 --current tag
-git_tag = memoize_package(function(package)
+git_tag = memoize_package('git_tag', function(package)
 	return git(package, 'describe --tags --abbrev=0')
 end)
 
-git_origin_url = memoize_package(function(package)
+git_origin_url = memoize_package('git_origin_url', function(package)
 	return git(package, 'config --get remote.origin.url')
 end)
 
@@ -1639,15 +1642,15 @@ local function git_log_time(package, args)
 	return tonumber(glue.trim(git(package, 'log -1 --format=%at '..args)))
 end
 
-git_master_time = memoize_package(function(package)
+git_master_time = memoize_package('git_master_time', function(package)
 	return git_log_time(package, '')
 end)
 
-git_file_time = memoize_package(function(package, file)
+git_file_time = memoize_package('git_file_time', function(package, file)
 	return git_log_time(package, '--follow \''..file..'\'')
 end)
 
-git_tag_time = memoize_package(function(package, tag)
+git_tag_time = memoize_package('git_tag_time', function(package, tag)
 	return git_log_time(package, tag)
 end)
 
@@ -1683,7 +1686,7 @@ function module_loader(mod, package)
 end
 
 local track_module_ = track_module
-luapower.track_module = memoize_mod_package(function(mod, package)
+luapower.track_module = memoize_mod_package('track_module', function(mod, package)
 	package = package or module_package(mod)
 	local loader_mod = module_loader(mod, package)
 	local env = environments[loader_mod]
@@ -1856,7 +1859,7 @@ end
 --supported platforms. a module can signal that it doesn't support a specific
 --platform by raising an error containing 'platform not ' or 'arch not ',
 --and can signal that it's not a module by raising 'not a module'.
-module_platforms = memoize_mod_package(function(mod, package)
+module_platforms = memoize_mod_package('module_platforms', function(mod, package)
 	package = package or module_package(mod)
 	local t = {}
 	local platforms = platforms(package)
@@ -1887,7 +1890,7 @@ function module_autoloads(mod, package, platform)
 end
 
 --list of modules possibly required at runtime (detected through parsing).
-module_requires_runtime = memoize(function(mod, package, platform)
+module_requires_runtime = memoize('module_requires_runtime', function(mod, package, platform)
 	local err = module_load_error(mod, package, platform)
 	--if module doesn't load, hide its runtime deps.
 	if err then return {} end
@@ -1895,7 +1898,7 @@ module_requires_runtime = memoize(function(mod, package, platform)
 end)
 
 --list of auto-loaded modules on the target module.
-module_autoloaded = memoize(function(mod, package, platform)
+module_autoloaded = memoize('module_autoloaded', function(mod, package, platform)
 	local t = {}
 	for _,mod in pairs(module_autoloads(mod, package, platform)) do
 		t[mod] = true
@@ -1904,7 +1907,7 @@ module_autoloaded = memoize(function(mod, package, platform)
 end)
 
 --alltime means loadtime + runtime + autoloaded.
-module_requires_alltime = memoize(function(mod, package, platform)
+module_requires_alltime = memoize('module_requires_alltime', function(mod, package, platform)
 	return glue.update({},
 		module_requires_loadtime(mod, package, platform),
 		module_autoloaded(mod, package, platform),
@@ -1917,8 +1920,8 @@ end)
 
 --given a dependency-getting function, get a module's dependencies
 --recursively, as a table's keys.
-local function module_requires_recursive_keys_for(deps_func)
-	return memoize(function(mod, package, platform)
+local function module_requires_recursive_keys_for(deps_fname, deps_func)
+	return memoize('module_requires_recursive_keys_for_'..deps_fname, function(mod, package, platform)
 		local t = {}
 		local function add_deps(mod, package, platform)
 			for dep in pairs(deps_func(mod, package, platform)) do
@@ -1936,8 +1939,8 @@ end
 
 --given a dependency-getting function, get a module's dependencies
 --recursively, as a tree.
-local function module_requires_recursive_tree_for(deps_func)
-	return memoize(function(mod, package, platform)
+local function module_requires_recursive_tree_for(deps_fname, deps_func)
+	return memoize('module_requires_recursive_tree_for_'..deps_fname, function(mod, package, platform)
 		local function add_deps(pnode, package, platform)
 			for dep in pairs(deps_func(pnode.name, package, plaform)) do
 				local node = {name = dep}
@@ -1952,14 +1955,14 @@ local function module_requires_recursive_tree_for(deps_func)
 end
 
 module_requires_loadtime_tree =
-	module_requires_recursive_tree_for(module_requires_loadtime)
+	module_requires_recursive_tree_for('module_requires_loadtime', module_requires_loadtime)
 module_requires_loadtime_all  =
-	module_requires_recursive_keys_for(module_requires_loadtime)
+	module_requires_recursive_keys_for('module_requires_loadtime', module_requires_loadtime)
 module_requires_alltime_all   =
-	module_requires_recursive_keys_for(module_requires_alltime)
+	module_requires_recursive_keys_for('module_requires_alltime', module_requires_alltime)
 
 --direct and indirect internal (i.e. same package) module deps of a module
-module_requires_loadtime_int = memoize(function(mod, package, platform)
+module_requires_loadtime_int = memoize('module_requires_loadtime_int', function(mod, package, platform)
 	package = package or module_package(mod)
 	local internal = modules(package)
 	return filter(module_requires_loadtime_all(mod, package, platform),
@@ -1967,7 +1970,7 @@ module_requires_loadtime_int = memoize(function(mod, package, platform)
 end)
 
 --direct external module deps of a module and its internal deps
-module_requires_loadtime_ext = memoize(function(mod, package, platform)
+module_requires_loadtime_ext = memoize('module_requires_loadtime_ext', function(mod, package, platform)
 	local t = {}
 	package = package or module_package(mod)
 	--direct deps of mod
@@ -1986,7 +1989,7 @@ end)
 ------------------------------------------------------------------------------
 
 --direct and indirect binary dependencies of a package
-bin_deps_all = memoize_opt_package(function(package, platform)
+bin_deps_all = memoize_opt_package('bin_deps_all', function(package, platform)
 	local t = {}
 	local function add_deps(package)
 		for dep in pairs(bin_deps(package, platform)) do
@@ -2006,8 +2009,8 @@ end)
 
 --get the modules and packages that depend on a module,
 --given a dependency-getting function.
-local function module_required_for(deps_func, add_rev_bin_deps)
-	return memoize(function(mod, package0, platform)
+local function module_required_for(deps_fname, deps_func, add_rev_bin_deps)
+	return memoize('module_required_for_'..deps_fname, function(mod, package0, platform)
 		local t = {}
 		local pt = {}
 		package0 = package0 or module_package(mod)
@@ -2029,15 +2032,15 @@ local function module_required_for(deps_func, add_rev_bin_deps)
 end
 
 --all modules and packages that depend on a module, directly and indirectly.
-module_required_loadtime     = module_required_for(module_requires_loadtime)
-module_required_alltime      = module_required_for(module_requires_alltime)
-module_required_loadtime_all = module_required_for(module_requires_loadtime_all)
-module_required_alltime_all  = module_required_for(module_requires_alltime_all)
+module_required_loadtime     = module_required_for('module_requires_loadtime'    , module_requires_loadtime)
+module_required_alltime      = module_required_for('module_requires_alltime'     , module_requires_alltime)
+module_required_loadtime_all = module_required_for('module_requires_loadtime_all', module_requires_loadtime_all)
+module_required_alltime_all  = module_required_for('module_requires_alltime_all' , module_requires_alltime_all)
 
 --given a package dependency-getting function, get packages that depend on a
 --package.
-local function package_required_for(deps_func)
-	return memoize(function(package0, platform)
+local function package_required_for(deps_fname, deps_func)
+	return memoize('package_required_for_'..deps_fname, function(package0, platform)
 		local t = {}
 		for package in pairs(installed_packages()) do
 			if package ~= package0 then --not of self
@@ -2055,15 +2058,15 @@ end
 ------------------------------------------------------------------------------
 
 --which packages is a package a binary dependency of.
-rev_bin_deps     = package_required_for(bin_deps)
-rev_bin_deps_all = package_required_for(bin_deps_all)
+rev_bin_deps     = package_required_for('bin_deps'    , bin_deps)
+rev_bin_deps_all = package_required_for('bin_deps_all', bin_deps_all)
 
 
 --analytic info
 ------------------------------------------------------------------------------
 
 --analytic info for a module
-module_tags = memoize(function(package, mod)
+module_tags = memoize('module_tags', function(package, mod)
 	local mod_path = modules(package)[mod]
 	local t = {}
 	t.lang =
@@ -2078,7 +2081,7 @@ module_tags = memoize(function(package, mod)
 end)
 
 --analytic info for a package
-package_type = memoize_package(function(package)
+package_type = memoize_package('package_type', function(package)
 	local has_c = csrc_dir(package) and true or false
 	local has_mod = next(modules(package)) and true or false
 	local has_mod_c = false
@@ -2121,7 +2124,7 @@ end)
 local function key(key, t) return t and t[key] end
 
 --author can be specified in the header of the main module file or in the .md file.
-author = memoize_package(function(package)
+author = memoize_package('author', function(package)
 	return
 		key('author', doc_tags(package, package)) or
 		key('author', module_header(package, package))
@@ -2130,7 +2133,7 @@ end)
 --license can be specified in the header of the main module file
 --or in the .md file, otherwise the WHAT-file license is assumed,
 --and finally the default license is used as a fallback.
-license = memoize_package(function(package)
+license = memoize_package('license', function(package)
 	return
 		key('license', doc_tags(package, package)) or
 		key('license', what_tags(package)) or
@@ -2140,7 +2143,7 @@ end)
 
 --a module's tagline can be specified in the header of the module file
 --or in the .md of the module.
-module_tagline = memoize_package(function(package, mod)
+module_tagline = memoize_package('module_tagline', function(package, mod)
 	local s =
 		   key('tagline', doc_tags(package, mod))
 		or key('descr', module_header(package, mod))
@@ -2148,7 +2151,7 @@ module_tagline = memoize_package(function(package, mod)
 end)
 
 --pkg -> cat map
-packages_cats = memoize(function()
+packages_cats = memoize('packages_cats', function()
 	local t = {}
 	for i,cat in ipairs(cats()) do
 		for i,pkg in ipairs(cat.packages) do
@@ -2164,7 +2167,7 @@ end
 
 --given a list of packages as a comma-separated string, return a possible
 --build order that assures that all the dependencies are built first.
-build_order = memoize(function(packages, platform)
+build_order = memoize('build_order', function(packages, platform)
 	platform = check_platform(platform)
 	local function input_packages()
 		if not packages then
@@ -2236,7 +2239,7 @@ end
 
 --check for the same doc in a different path.
 --since all docs share the same namespace on the website, this is not allowed.
-duplicate_docs = memoize(function()
+duplicate_docs = memoize('duplicate_docs', function()
 	local dt = {} --{doc = package}
 	local dupes = {}
 	for package in pairs(installed_packages()) do
@@ -2250,7 +2253,7 @@ duplicate_docs = memoize(function()
 end)
 
 --check for undocumented packages
-undocumented_package = memoize_opt_package(function(package)
+undocumented_package = memoize_opt_package('undocumented_package', function(package)
 	local t = {}
 	local docs = docs(package)
 	if not docs[package] then
@@ -2260,7 +2263,7 @@ undocumented_package = memoize_opt_package(function(package)
 end)
 
 --module load errors for each module of a package
-load_errors = memoize_opt_package(function(package, platform)
+load_errors = memoize_opt_package('load_errors', function(package, platform)
 	local errs = {}
 	for mod in pairs(modules(package)) do
 		local err = module_load_error(mod, package, platform)
