@@ -347,26 +347,48 @@ end
 
 local nilval = setmetatable({}, {__pwrite = function(_, write) write'nilval' end})
 local caches = {}
-function memoize(fname, func)
-	local cache_dir = powerpath'tmp/luapower'
-	assert(fs.mkdir(cache_dir, true))
-	local cache_file = plusfile(cache_dir, fname)
-	local cache = {}
-	caches[fname] = cache
-	cache.args = glue.tuples()
-	cache.file = cache_file
-	cache.retvals = {}
-	if fs.is(cache_file, 'file') then
-		local s = assert(glue.readfile(cache_file))
-		local pnilval, pcache = loadstring('local nilval={};return nilval,'..s)()
-		for args, ret in pairs(pcache) do
-			if ret == pnilval then ret = nilval end
-			local args = setmetatable(cache.args(glue.unpack(args)), nil)
-			cache.retvals[args] = ret
+local cache_dir
+local function get_cache_dir()
+	if not cache_dir then
+		if ffi.os == 'Linux' then
+			local s = assert(glue.readfile'/proc/self/status')
+			local uid = assert(tonumber(s:find'Uid:%s*(%d+)'))
+			if fs.is('/run/user/'..uid, 'dir') then --have tmpfs
+				cache_dir = '/run/user/'..uid..'/luapower'
+			end
+		end
+		if not cache_dir then
+			cache_dir = powerpath'tmp/luapower'
+		end
+		assert(fs.mkdir(cache_dir, true))
+	end
+	return cache_dir
+end
+local function get_cache(fname)
+	local cache = caches[fname]
+	if not cache then
+		cache = {}
+		caches[fname] = cache
+		cache_dir = get_cache_dir()
+		local cache_file = plusfile(cache_dir, fname)
+		cache.args = glue.tuples()
+		cache.file = cache_file
+		cache.retvals = {}
+		if fs.is(cache_file, 'file') then
+			local s = assert(glue.readfile(cache_file))
+			local pnilval, pcache = loadstring('local nilval={};return nilval,'..s)()
+			for args, ret in pairs(pcache) do
+				if ret == pnilval then ret = nilval end
+				local args = setmetatable(cache.args(glue.unpack(args)), nil)
+				cache.retvals[args] = ret
+			end
 		end
 	end
+	return cache
+end
+function memoize(fname, func)
 	return function(...)
-		local cache = caches[fname]
+		local cache = get_cache(fname)
 		local args = setmetatable(cache.args(...), nil)
 		local ret = cache.retvals[args]
 		if ret == nil then
