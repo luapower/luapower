@@ -18,8 +18,10 @@ CONVENTIONS:
 	* the currently supported platforms are in the luapower.platforms table.
 
 	* a module can signal that it doesn't support a platform by raising
-	an error containing the string 'platform not ' or 'arch not ' when it's
-	loaded.
+	an error containing the string 'platform not ' or 'arch not ' upon loading.
+
+	* a module can signal that it doesn't support the luajit runtime by
+	raising an error containing the string 'runtime not ' upon loading.
 
 	* a module can signal that it's not a module but actually an app by
 	asserting it with assert(... ~= <module_name>, 'not a module').
@@ -99,6 +101,7 @@ STATIC INFO:
 	* supported_platforms -> t              {platform -> true}
 	* builtin_modules -> t                  {module -> true}
 	* luajit_builtin_modules -> t           {module -> true}
+	* nginx_builtin_modules -> t            {module -> true}
 	* loader_modules -> t                   {file_ext -> loader_module_name}
 	* enviornments -> t                     {loader_module_name -> env_name}
 	* default_license -> s                  default license
@@ -518,7 +521,7 @@ local function install_trackers(builtin_modules, filter)
 			   --cache the error for future calls.
 				local err = ret:gsub(':?%s*[\n\r].*', '')
 				err = err:gsub('^.-[\\/]%.%.[\\/]%.%.[\\/]', '')
-				--remove source info for platform and arch load errors
+				--remove source info for platform, arch and runtime load errors
 				local perr =
 					   err:match'platform not .*'
 					or err:match'arch not .*'
@@ -595,6 +598,8 @@ end
 
 --make a Lua state for loading modules in a clean environment for tracking.
 --the tracker function is installed in the state as the global 'track_module'.
+--NOTE: env arg is not used because it turns out it's fast enough to create
+--a new Lua state for _every_ module.
 local tracking_state = function(env)
 	local luastate = require'luastate'
 	local state = luastate.open()
@@ -612,7 +617,9 @@ local function track_module(m, loader_m, env)
 	assert(m, 'module required')
 	local state = tracking_state(env)
 	state:getglobal'track_module'
-	return state:call(m, loader_m)
+	local ret = state:call(m, loader_m)
+	state:close()
+	return ret
 end
 
 
@@ -633,9 +640,15 @@ luajit_builtin_modules = {
 	['thread.exdata'] = true,
 }
 
+nginx_builtin_modules = {
+}
+
 module_requires_runtime_parsed = memoize('module_requires_runtime_parsed', function(m) --direct dependencies
 	local t = {}
-	if builtin_modules[m] or luajit_builtin_modules[m] then
+	if    builtin_modules[m]
+		or luajit_builtin_modules[m]
+		or nginx_builtin_modules[m]
+	then
 		return t
 	end
 	local path =
@@ -1239,13 +1252,18 @@ end)
 
 --check if a path is valid for containing Lua or Terra modules.
 local function is_module_path(p)
-	return not p or not (
-		   p:find'^bin/'    --can't have modules in bin
-		or p:find'^csrc/'   --can't have modules in csrc
-		or p:find'^media/'  --can't have modules in media
-		or p:find'^tmp/'    --can't have modules in tmp
-		or p:find'^logs/'   --can't have modules in logs
-		or p:find'^%.mgit/' --can't have modules in .mgit
+	if not p then return true end
+	--TODO: track nginx modules with resty-cli.
+	if p:find'^resty/' then return false end
+	if p:find'^ngx/' then return false end
+	return not (
+		   p:find'^bin/'     --can't have modules in bin
+		or p:find'^csrc/'    --can't have modules in csrc
+		or p:find'^media/'   --can't have modules in media
+		or p:find'^tmp/'     --can't have modules in tmp
+		or p:find'^logs/'    --can't have modules in logs
+		or p:find'^.-%-www/' --can't have modules in www dirs
+		or p:find'^%.mgit/'  --can't have modules in .mgit
 	)
 end
 
@@ -1463,6 +1481,7 @@ module_package = memoize('module_package', function(mod)
 	--shortcut: builtin module
 	if builtin_modules[mod] then return end --no reporting for Lua built-ins
 	if luajit_builtin_modules[mod] then return 'luajit' end
+	if nginx_builtin_modules[mod] then return 'nginx' end
 	--shortcut: find the package that matches the module name or one of its
 	--prefixes (which is a possible parent module).
 	local mod1 = mod
@@ -1699,6 +1718,11 @@ environments = {
 	terra = 'terra',
 }
 
+runtimes = {
+	luajit = true,
+	nginx = true,
+}
+
 function module_loader(mod, package)
 	package = package or module_package(mod)
 	local path = modules(package)[mod]
@@ -1897,6 +1921,7 @@ module_platforms = memoize_mod_package('module_platforms', function(mod, package
 		if not err or not (
 			err:find'platform not '
 			or err:find'arch not '
+			or err:find'runtime not '
 			or err:find'not a module'
 		) then
 			t[platform] = true
@@ -2293,7 +2318,12 @@ load_errors = memoize_opt_package('load_errors', function(package, platform)
 	local errs = {}
 	for mod in pairs(modules(package)) do
 		local err = module_load_error(mod, package, platform)
-		if err and not err:find'platform not ' and not err:find'arch not ' then
+		if err and not (
+			   err:find'platform not '
+			or err:find'arch not '
+			or err:find'runtime not '
+		)
+		then
 			errs[mod] = err
 		end
 	end
