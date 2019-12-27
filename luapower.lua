@@ -352,7 +352,7 @@ local function get_cache_dir()
 	if not cache_dir then
 		if ffi.os == 'Linux' then
 			local s = assert(glue.readfile'/proc/self/status')
-			local uid = assert(tonumber(s:find'Uid:%s*(%d+)'))
+			local uid = assert(tonumber((s:match'Uid:%s*(%d+)')))
 			if fs.is('/run/user/'..uid, 'dir') then --have tmpfs
 				cache_dir = '/run/user/'..uid..'/luapower'
 			end
