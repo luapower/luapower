@@ -419,8 +419,12 @@ end
 function clear_cache(pkg)
 	for fname,cache in pairs(caches) do
 		if not pkg or glue.starts(fname, pkg..'-') then
-			cache.retvals = {}
-			assert(fs.remove(cache.file))
+			if next(cache.retvals) then
+				cache.retvals = {}
+				if persistent_cache then
+					assert(fs.remove(cache.file))
+				end
+			end
 		end
 	end
 end
