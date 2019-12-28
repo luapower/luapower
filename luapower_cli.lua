@@ -2,7 +2,7 @@
 --luapower command-line interface.
 --Written by Cosmin Apreutesei. Public Domain.
 
-if ... == 'luapower_cli' then return end --loaded as module: nothing to show
+if package.loaded.luapower_cli then return end --loaded as module: nothing to show
 
 local lp = require'luapower'
 local glue = require'glue'
@@ -249,7 +249,7 @@ end
 local function help()
 	print''
 	print(_([[
-USAGE: luapower [-s|--server IP|NAME] [-p|--port PORT] COMMAND ...]], arg[0]))
+USAGE: lp [-s|--server IP|NAME] [-p|--port PORT] COMMAND ...]], arg[0]))
 	for i,t in ipairs(action_list) do
 		if t.name then
 			print(_('   %-30s %s', t.name .. ' ' .. t.args, t.info))
@@ -272,7 +272,7 @@ NOTES
 
    Example:
 
-       ./luapower packages-of d-alltime-all modules-of-winapi mingw32')
+       ./lp packages-of d-alltime-all modules-of-winapi mingw32
 
    will return the packages of direct + indirect (all) loadtime + runtime
    + autoloaded (alltime) module dependencies of all modules of package

@@ -82,7 +82,7 @@ in luapower.lua directly.
 
 	lp.update_db([package], [platform])
 
-	./luapower update-db [PACKAGE] [PLATFORM]
+	./lp update-db [PACKAGE] [PLATFORM]
 
 Passing nil (i.e. '--all' in the cmdline version) as package updates
 all the packages, same with the platform (so not passing any args updates
