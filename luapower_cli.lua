@@ -300,6 +300,9 @@ local d_commands = {
 	'd-runtime',          'module_requires_runtime',
 	                      'runtime requires',
 
+	'd-loaders',          'module_loaders',
+	                      'module loaders',
+
 	'd-alltime',          'module_requires_alltime',
 	                      'load-time + runtime + autoloaded req',
 

@@ -20,8 +20,8 @@ CONVENTIONS:
 	* a module can signal that it doesn't support the current platform by
 	raising an error containing the 'platform not ' or 'arch not ' upon loading.
 
-	* a module can signal that it requires a global variable that is set
-	by loading another module by raising the error '<module_name> not loaded'.
+	* a module can signal that it requires another module to be already loaded
+	by raising the error '<module_name> not loaded'.
 
 	* a module's runtime dependencies that are bound to module keys can be
 	declared in its `__autoload` metatable field (see glue.autoload).
@@ -33,27 +33,32 @@ CONVENTIONS:
 		-- Written By: <author>. <license> [license].
 		-- Copyright (C) <author>. <license> [license].
 
-	* submodules can be put in folders or named `<module>_<submodule>.lua`.
+	* submodules can be put in fulders as `<module>/<submodule>.lua`
+	(the Lua way) or can be named `<module>_<submodule>.lua` (the luapower way).
 
-	* Lua/C modules are found in `bin/<platform>/clib/<module>.dll|.so`
+	* Lua/C modules are found in `bin/<platform>/clib/<module>.dll|.so`.
 
-	* C sources can be described in the metafile `csrc/<package>/WHAT` which
-	must look like this (the second line is optional and should only list
-	the binary dependencies of the library if any):
+	* C sources can be described in the meta file `csrc/<package>/WHAT` which
+	must look like this:
 
 		<libname> <version> from <browse-url> (<license> license)
 		requires: package1, package2 (platform1 platform2 ...), ...
 
+	the second line is optional and should only list the binary dependencies
+	of the library, if any.
+
 	* The WHAT file can also be used to describe Lua modules that are
 	developed outside of luapower.
 
-	* packages can be organized into categories in the markdown file
+	* packages can be organized into categories in the markdown files
 	`.mgit/*-cat.md` which must contain a two-level deep bullet list.
 	Any packages that are not listed there will be added automatically to the
 	`Misc` category.
 
 	* a package is known if it has a `.mgit/<package>.origin` file.
+
 	* a package is installed if it has a `.mgit/<package>` directory.
+
 	* not installed packages are those known but not installed.
 
 	* modules can be anywhere in the tree except in `csrc`, `media`, `.mgit`,
@@ -63,7 +68,8 @@ CONVENTIONS:
 	the tree where modules can be.
 
 	* modules that end in `_test`, `_demo`, `_demo_<arch>`, `_benchmark`
-	or `_app` are considered standalone scripts.
+	or `_app` are considered standalone scripts and are never loaded for
+	tracking dependencies.
 
 	* packages containing Lua/C modules have an _implicit_ binary dependency
 	on the luajit package because they link against the LuaJIT library.
@@ -71,7 +77,8 @@ CONVENTIONS:
 	* packages with a C component must contain a build script named
 	`csrc/*/build-<platform>.sh` for each platform that it supports.
 
-	* the main doc file is `<package>.md`.
+	* the main doc file of a package must be named `<package>.md`, but if
+	there's only one doc file in the repo, that will be used as main doc file.
 
 	* platforms can be specified in the `platforms` tag of the package's main
 	doc file as comma-separated values.
@@ -84,6 +91,10 @@ CONVENTIONS:
 
 	* .t files are listed as Terra modules and are tracked like Terra modules
 	and the `terra` module is loaded first.
+
+	* Lua modules in `ngx` and `resty` dirs are tracked as Lua/Resty modules.
+
+	* Lua files that raise 'ngx not loaded' are tracked as Lua/Resty modules.
 
 STATIC INFO:
 
@@ -204,7 +215,9 @@ MODULE DEPENDENCY TRACKING:
 
 	module_loader(mod[, package]) -> s    find a module's loader module if any
 	track_module(mod[, package]) -> t     {loaderr=s | mdeps={mod -> true},
-	                                        ffi_deps={mod -> true}}
+	                                        ffi_deps={mod -> true},
+	                                        loaders = {mod1, ...}}
+
 UPDATING THE DEPENDENCY DB:
 
 	load_db()                             load luapower_db.lua
@@ -474,6 +487,11 @@ builtin_modules = {
 	math = true, os = true, _G = true, debug = true,
 }
 
+--some modules actually require a differrent runtime than LuaJIT.
+module_runtimes = {
+	['ngx'] = 'resty',
+}
+
 --install `require` and `ffi.load` trackers -- to be run in a new Lua state.
 local function install_trackers(builtin_modules, filter)
 
@@ -481,7 +499,6 @@ local function install_trackers(builtin_modules, filter)
 
 	local parents = {} --{module1, ...}
 	local dt = {} --{module -> dep_table}
-	local loaders = {} --{loader_module1, ...}
 	local lua_require = require
 
 	function require(m)
@@ -498,8 +515,7 @@ local function install_trackers(builtin_modules, filter)
 		--the stack.
 		local parent = parents[#parents]
 		if parent then
-			dt[parent].mdeps = dt[parent].mdeps or {}
-			dt[parent].mdeps[m] = true
+			glue.attr(dt[parent], 'mdeps')[m] = true
 		end
 
 		--push the module into the parents stack
@@ -518,6 +534,7 @@ local function install_trackers(builtin_modules, filter)
 				err = err:gsub('^.-[\\/]%.%.[\\/]%.%.[\\/]', '')
 				local loader_m = err:match'([^%s]+) not loaded$'
 				if loader_m then
+					local loaders = glue.attr(dt[m], 'loaders')
 					loaders[#loaders+1] = loader_m
 				else
 					--remove source info for platform and arch load errors
@@ -525,7 +542,7 @@ local function install_trackers(builtin_modules, filter)
 							err:match'platform not .*'
 						or err:match'arch not .*'
 						or err
-					dt[m] = {loaderr = err}
+					dt[m].loaderr = err
 				end
 			end
 		end
@@ -570,12 +587,18 @@ local function install_trackers(builtin_modules, filter)
 	end
 
 	--track a module, tracing its require and ffi.load calls.
-	--loader_m is an optional "loader" module that needs to be loaded
-	--before m can be loaded (eg. for loading .dasl files, see dynasm).
 	function track_module(m)
+
 		--TODO: LuaSec clib modules crash if not loaded in specific order.
 		if m:find'^ssl%.' then return {}, loaders end
+
+		local runtime = module_runtimes[m]
+		if runtime then
+			return {}, loaders, runtime
+		end
+
 		pcall(require, m)
+
 		return dt[m], loaders
 	end
 
@@ -592,7 +615,7 @@ local tracking_state = function(env)
 	state:push{[0] = arg[0]} --used by some modules to get the exe dir
 	state:setglobal'arg'
 	state:push(install_trackers)
-	state:call(builtin_modules, filter)
+	state:call(builtin_modules, filter, module_runtimes)
 	return state
 end
 
@@ -604,29 +627,34 @@ local function track_module_(m, loaders, env)
 	if loaders then
 		for _,loader_m in ipairs(loaders) do
 			state:getglobal'track_module'
-			local deps, found_loaders = state:call(loader_m)
+			local deps, found_loaders, runtime = state:call(loader_m)
 			if deps.loaderr then
-				return deps, found_loaders
+				return deps, found_loaders, runtime
 			end
 		end
 	end
 	state:getglobal'track_module'
-	local deps, found_loaders = state:call(m)
+	local deps, found_loaders, runtime = state:call(m)
 	state:close()
-	return deps, found_loaders
+	return deps, found_loaders, runtime
 end
 
 --track a module and if it requires other modules to be loaded before it,
 --then retry with loading those first.
 local function track_module(m, loader_m, env)
 	local loaders = {loader_m}
-	local deps, found_loaders = track_module_(m, loaders, env)
-	if not deps.loaderr then
-		while #found_loaders > 0 do
+	local deps, found_loaders, runtime = track_module_(m, loaders, env)
+	if runtime then
+		--TODO: use runtime and retry tracking.
+	else
+		while not deps.loaderr and #found_loaders > 0 do
 			glue.extend(loaders, found_loaders)
-			deps, found_loaders = track_module_(m, loaders, env)
+			deps, found_loaders, runtime = track_module_(m, loaders, env)
 		end
 	end
+	deps.runtime = runtime
+	deps.loader_list = loaders
+	deps.loaders = glue.index(loaders)
 	return deps
 end
 
@@ -645,6 +673,9 @@ luajit_builtin_modules = {
 	['table.nkeys'] = true,
 	['table.clone'] = true,
 	['thread.exdata'] = true,
+	--luapower built-ins.
+	['package.exedir'] = true,
+	['package.exepath'] = true,
 }
 
 nginx_builtin_modules = {
@@ -1265,9 +1296,6 @@ end)
 --check if a path is valid for containing Lua or Terra modules.
 local function is_module_path(p)
 	if not p then return true end
-	--TODO: track nginx modules with resty-cli.
-	if p:find'^resty/' then return false end
-	if p:find'^ngx/' then return false end
 	return not (
 		   p:find'^bin/'     --can't have modules in bin
 		or p:find'^csrc/'    --can't have modules in csrc
@@ -1277,6 +1305,11 @@ local function is_module_path(p)
 		or p:find'^.-%-www/' --can't have modules in www dirs
 		or p:find'^%.mgit/'  --can't have modules in .mgit
 	)
+end
+
+--check if a path is valid for containing OpenResty modules.
+local function is_resty_module_path(p)
+	return not p or (p:find'^resty/' or p:find'^ngx/') and true or false
 end
 
 --check if a path is valid for containing platform-specific modules
@@ -1737,6 +1770,9 @@ function module_loader(mod, package)
 	if type(path) == 'table' then
 		path = path[current_platform()]
 	end
+	if is_resty_module_path(path) then
+		return 'ngx'
+	end
 	local ext = path:match'%.(.*)$'
 	if not ext then return end
 	return loader_modules[ext]
@@ -1814,6 +1850,7 @@ end
 --the `package` arg is an optional filter.
 function update_db_on_current_platform(package)
 	load_db()
+	local platform = current_platform()
 	local platform = current_platform()
 	local data = get_tracking_data(package)
 	glue.update(glue.attr(db, platform), data)
@@ -1905,6 +1942,11 @@ local empty = {}
 --list of modules required when the target module is loaded.
 function module_requires_loadtime(mod, package, platform)
 	return track_module_platform(mod, package, platform).mdeps or empty
+end
+
+--list of modules that the user needs to load before loading the target module.
+function module_loaders(mod, package, platform)
+	return track_module_platform(mod, package, platform).loaders
 end
 
 --if loading the module resulted in an error, return that error.
