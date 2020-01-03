@@ -423,12 +423,14 @@ function memoize_package(fname, func)
 	end
 end
 
+local free_tracking_states --fw. decl.
+
 --clear memoization caches for a specific package or for all packages.
 function clear_cache(pkg)
 	local cache_dir = get_cache_dir()
 	for fname in fs.dir(cache_dir) do
 		if not fname then break end
-		if not pkg or glue.starts(fname, pkg..'-') then
+		if not pkg or glue.starts(fname, pkg..'-') or not fname:find('-', 1, true) then
 			if caches[fname] then
 				caches[fname].retvals = {}
 			end
@@ -437,6 +439,7 @@ function clear_cache(pkg)
 			end
 		end
 	end
+	free_tracking_states()
 end
 
 --other helpers
@@ -487,68 +490,66 @@ builtin_modules = {
 	math = true, os = true, _G = true, debug = true,
 }
 
---some modules actually require a differrent runtime than LuaJIT.
-module_runtimes = {
-	['ngx'] = 'resty',
-}
-
 --install `require` and `ffi.load` trackers -- to be run in a new Lua state.
-local function install_trackers(builtin_modules, filter)
+local function install_trackers(env, builtin_modules, filter, attr)
+
+	local function strip_error(err)
+		return err:gsub(':?%s*[\n\r].*', ''):gsub('^.-[\\/]%.%.[\\/]%.%.[\\/]', '')
+	end
 
 	--find Lua dependencies of a module by tracing its `require` calls.
 
-	local parents = {} --{module1, ...}
-	local dt = {} --{module -> dep_table}
+	local parent
+	local tracks = {} --{module -> {mdeps=, ffi_deps=, autoloads=, loaders=, error=}}
+	local new_loader
 	local lua_require = require
 
 	function require(m)
 
-		--create the module's tracking table
-		dt[m] = dt[m] or {}
+		--register the module as a dependency for its parent, if any.
+		if parent then
+			attr(tracks[parent], 'mdeps')[m] = true
+		end
 
 		--require the module directly if it doesn't need tracking.
 		if builtin_modules[m] then
 			return lua_require(m)
 		end
 
-		--register the module as a dependency for the parent at the top of
-		--the stack.
-		local parent = parents[#parents]
-		if parent then
-			glue.attr(dt[parent], 'mdeps')[m] = true
-		end
+		--save the parent and replace it with this module for re-entry.
+		local parent0 = parent
+		parent = m
 
-		--push the module into the parents stack
-		table.insert(parents, m)
+		--get/create this module's tracking table.
+		local track = attr(tracks, m)
 
-		--check the error cache before loading the module
+		--check the error cache before loading the module.
 		local ok, ret
-		local err = dt[m].loaderr
+		local err = track.loaderr
 		if err then
-			ok, ret = nil, err
+			ok, ret = false, err
+			if track.loader then
+				new_loader = track.loader
+			end
 		else
 			ok, ret = pcall(lua_require, m)
 			if not ok then
-			   --cache the error for future calls.
-				local err = ret:gsub(':?%s*[\n\r].*', '')
-				err = err:gsub('^.-[\\/]%.%.[\\/]%.%.[\\/]', '')
-				local loader_m = err:match'([^%s]+) not loaded$'
-				if loader_m then
-					local loaders = glue.attr(dt[m], 'loaders')
-					loaders[#loaders+1] = loader_m
-				else
-					--remove source info for platform and arch load errors
-					local err =
-							err:match'platform not .*'
-						or err:match'arch not .*'
-						or err
-					dt[m].loaderr = err
+				err = strip_error(ret)
+				err = err:match'platform not .*'
+					or err:match'arch not .*'
+					or err:match'[^%s]+ not loaded$'
+					or err
+				ret = err
+			   track.loaderr = err --cache the error for future calls.
+				track.loader = err:match'([^%s]+) not loaded$' or nil
+				if track.loader then
+					new_loader = track.loader
 				end
 			end
 		end
 
-		--pop the module from the parents stack
-		table.remove(parents)
+		--restore the parent.
+		parent = parent0
 
 		if not ok then
 			error(ret, 2)
@@ -560,7 +561,7 @@ local function install_trackers(builtin_modules, filter)
 		local mt = getmetatable(ret)
 		local auto = mt and rawget(mt, '__autoload')
 		if auto then
-			dt[m].autoloads = filter(auto, function(key, mod)
+			track.autoloads = filter(auto, function(key, mod)
 				return type(key) == 'string' and type(mod) == 'string'
 			end)
 		end
@@ -575,10 +576,7 @@ local function install_trackers(builtin_modules, filter)
 
 	function ffi.load(clib, ...)
 		local ok, ret = xpcall(ffi_load, debug.traceback, clib, ...)
-		local m = parents[#parents]
-		local t = dt[m]
-		t.ffi_deps = t.ffi_deps or {}
-		t.ffi_deps[clib] = ok
+		attr(tracks[parent], 'ffi_deps')[clib] = ok
 		if not ok then
 			error(ret, 2)
 		else
@@ -588,74 +586,88 @@ local function install_trackers(builtin_modules, filter)
 
 	--track a module, tracing its require and ffi.load calls.
 	function track_module(m)
-
-		--TODO: LuaSec clib modules crash if not loaded in specific order.
-		if m:find'^ssl%.' then return {}, loaders end
-
-		local runtime = module_runtimes[m]
-		if runtime then
-			return {}, loaders, runtime
-		end
-
+		parent = nil
+		new_loader = nil
+		--LuaSec clib modules crash if not loaded in specific order.
+		if m:find'^ssl%.' then return end
 		pcall(require, m)
-
-		return dt[m], loaders
+		return tracks[m], new_loader
 	end
 
+	--load env modules.
+	if env then
+		local errors
+		for m in env:gmatch'[^%s]+' do
+			local ok, err = pcall(require, m)
+			if not ok then
+				errors = errors or {}
+				errors[#errors+1] = strip_error(err)
+			end
+		end
+		if errors then
+			return nil, table.concat(errors, '\n')
+		end
+	end
+
+	return true
 end
 
---make a Lua state for loading modules in a clean environment for tracking.
---the tracker function is installed in the state as the global 'track_module'.
---NOTE: env arg is not used because it turns out it's fast enough to create
---a new Lua state for _every_ module.
-local tracking_state = function(env)
-	local luastate = require'luastate'
-	local state = luastate.open()
-	state:openlibs()
-	state:push{[0] = arg[0]} --used by some modules to get the exe dir
-	state:setglobal'arg'
-	state:push(install_trackers)
-	state:call(builtin_modules, filter, module_runtimes)
+--make or reuse a Lua state for loading modules in a clean environment for
+--tracking. the tracker function is installed in the state as the global
+--'track_module'. different states are created for each env, mainly because
+--terra modules cannot be loaded alongside ffi modules, but also because
+--a module raising 'xxx not loaded' cannot be reloaded in the same state.
+local states = {} --{env -> state | error}
+local function tracking_state(env)
+	env = env or false
+	local state = states[env]
+	if not state then
+		local luastate = require'luastate'
+		state = luastate.open()
+		state:openlibs()
+		state:push{[0] = package.exedir} --used by some modules to get the exe dir
+		state:setglobal'arg'
+		state:push(install_trackers)
+		local ok, err = state:call(env, builtin_modules, filter, glue.attr)
+		if not ok then
+			state:close()
+			state = err
+		end
+		states[env] = state
+	end
 	return state
 end
 
---track a module in the tracking Lua state which is reused on future calls.
---different states are created for different environments.
-local function track_module_(m, loaders, env)
-	assert(m, 'module required')
-	local state = tracking_state(env)
-	if loaders then
-		for _,loader_m in ipairs(loaders) do
-			state:getglobal'track_module'
-			local deps, found_loaders, runtime = state:call(loader_m)
-			if deps.loaderr then
-				return deps, found_loaders, runtime
-			end
+function free_tracking_states() --fw. decl.
+	for _,state in pairs(states) do
+		if type(state) ~= 'string' then
+			state:close()
 		end
 	end
-	state:getglobal'track_module'
-	local deps, found_loaders, runtime = state:call(m)
-	state:close()
-	return deps, found_loaders, runtime
+	states = {}
 end
 
---track a module and if it requires other modules to be loaded before it,
---then retry with loading those first.
-local function track_module(m, loader_m, env)
-	local loaders = {loader_m}
-	local deps, found_loaders, runtime = track_module_(m, loaders, env)
-	if runtime then
-		--TODO: use runtime and retry tracking.
-	else
-		while not deps.loaderr and #found_loaders > 0 do
-			glue.extend(loaders, found_loaders)
-			deps, found_loaders, runtime = track_module_(m, loaders, env)
-		end
+local function track_module_in_state(state, ...)
+	if type(state) == 'string' then
+		return {loaderr = 'could not create tracking environment: '..state}
 	end
-	deps.runtime = runtime
-	deps.loader_list = loaders
-	deps.loaders = glue.index(loaders)
-	return deps
+	state:getglobal'track_module'
+	return state:call(...)
+end
+
+--track a module in a Lua state which is reused on future calls.
+--if new loaders are found, tracking is retried with the loaders loaded first.
+local function track_module(m, env)
+	assert(m, 'module required')
+	local state = tracking_state(env)
+	local track, new_loader = track_module_in_state(state, m)
+	if new_loader then
+		return track_module(m, env and env..' '..new_loader or new_loader)
+	end
+	if track then
+		track.env = env
+	end
+	return track
 end
 
 --dependency tracking based on parsing
@@ -1755,14 +1767,6 @@ loader_modules = {
 	t    = 'terra',
 }
 
---environments are used to load Terra modules in a separate Lua state than
---the state used to load Lua modules because LuaJIT ffi bindings are
---incompatible with Terra bindings because both try to create the same ffi
---ctypes and set a different ffi.metatype on those types.
-environments = {
-	terra = 'terra',
-}
-
 function module_loader(mod, package)
 	package = package or module_package(mod)
 	local path = modules(package)[mod]
@@ -1782,7 +1786,6 @@ local track_module_ = track_module
 luapower.track_module = memoize_mod_package('track_module', function(mod, package)
 	package = package or module_package(mod)
 	local loader_mod = module_loader(mod, package)
-	local env = environments[loader_mod]
 	return track_module_(mod, loader_mod, env)
 end)
 
@@ -1823,7 +1826,7 @@ end
 
 --NOTE: this function has no upvalues so that it can be uploaded and run
 --on a RPC server. the `package` arg is an optional filter.
-local function get_tracking_data(package)
+local function get_tracking_data(package, mod)
 	local lp = require'luapower'
 	local glue = require'glue'
 	local t = {}
@@ -1832,8 +1835,10 @@ local function get_tracking_data(package)
 		local plt = platforms(package)
 		--only track if the package itself supports this platform
 		if not next(plt) or plt[current_platform()] then
-			for mod in pairs(lp.modules(package)) do
-				t[mod] = lp.track_module(mod, package)
+			for m in pairs(lp.modules(package)) do
+				if not mod or m == mod then
+					t[m] = lp.track_module(m, package)
+				end
 			end
 		end
 	end
@@ -1848,11 +1853,11 @@ local function get_tracking_data(package)
 end
 
 --the `package` arg is an optional filter.
-function update_db_on_current_platform(package)
+function update_db_on_current_platform(package, mod)
 	load_db()
 	local platform = current_platform()
 	local platform = current_platform()
-	local data = get_tracking_data(package)
+	local data = get_tracking_data(package, mod)
 	glue.update(glue.attr(db, platform), data)
 end
 
@@ -1871,7 +1876,7 @@ function update_db(package, platform0, mod)
 				and not servers[platforms] --servers are preferred
 				and allow_update_db_locally --allowed updating natively
 			then
-				update_db_on_current_platform(package)
+				update_db_on_current_platform(package, mod)
 			elseif servers[platform] then
 				local loop = require'socketloop'
 				loop.newthread(function()
@@ -1945,8 +1950,20 @@ function module_requires_loadtime(mod, package, platform)
 end
 
 --list of modules that the user needs to load before loading the target module.
-function module_loaders(mod, package, platform)
-	return track_module_platform(mod, package, platform).loaders
+function module_environment(mod, package, platform)
+	local env = track_module_platform(mod, package, platform).env
+	local t = {}
+	if env then
+		for m in env:gmatch'[^%s]+' do
+			t[m] = true
+		end
+	end
+	return t
+end
+
+--return the module runtime.
+function module_runtime(mod, package, platform)
+	return {[track_module_platform(mod, package, platform).runtime or 'luajit'] = true}
 end
 
 --if loading the module resulted in an error, return that error.
@@ -2130,6 +2147,7 @@ end
 
 --all modules and packages that depend on a module, directly and indirectly.
 module_required_loadtime     = module_required_for('module_requires_loadtime'    , module_requires_loadtime)
+module_required_environment  = module_required_for('module_environment'          , module_environment)
 module_required_alltime      = module_required_for('module_requires_alltime'     , module_requires_alltime)
 module_required_loadtime_all = module_required_for('module_requires_loadtime_all', module_requires_loadtime_all)
 module_required_alltime_all  = module_required_for('module_requires_alltime_all' , module_requires_alltime_all)

@@ -300,8 +300,8 @@ local d_commands = {
 	'd-runtime',          'module_requires_runtime',
 	                      'runtime requires',
 
-	'd-loaders',          'module_loaders',
-	                      'module loaders',
+	'd-env',              'module_environment',
+	                      'module environment',
 
 	'd-alltime',          'module_requires_alltime',
 	                      'load-time + runtime + autoloaded req',
@@ -329,6 +329,10 @@ local d_commands = {
 
 	'd-rev-alltime-all',  'module_required_alltime_all',
 	                      'reverse direct + indirect all-time requires',
+
+	'd-rev-env',          'module_required_environment',
+	                      'reverse environment dependencies',
+
 }
 
 local dmap = {}
@@ -360,7 +364,7 @@ local function d_command(cmd, ...)
 				glue.update(t, func(mod, pkg, platform))
 			end
 		else
-			 t = func(mod, nil, platform) --package inferred
+			t = func(mod, nil, platform) --package inferred
 		end
 		if of then
 			local mt = t
