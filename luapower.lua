@@ -331,6 +331,7 @@ servers = {}           --{platform = {'ip|host', port}}
 --behavior
 auto_update_db = true  --update the db automatically when info is missing
 allow_update_db_locally = true --allow dependency tracking on this machine
+persistent_cache = false --save memoized results to cache files
 
 default_license = 'Public Domain'
 
@@ -382,7 +383,7 @@ local function get_cache(fname)
 		cache.args = glue.tuples()
 		cache.file = cache_file
 		cache.retvals = {}
-		if fs.is(cache_file, 'file') then
+		if persistent_cache and fs.is(cache_file, 'file') then
 			local s = assert(glue.readfile(cache_file))
 			local pnilval, pcache = loadstring('local nilval={};return nilval,'..s)()
 			for args, ret in pairs(pcache) do
@@ -2203,6 +2204,7 @@ package_type = memoize_package('package_type', function(package)
 	local has_ffi = false
 	local has_bit = false
 	local has_terra = false
+	local has_ngx = false
 	for mod in pairs(modules(package)) do
 		local lang = module_tags(package, mod).lang
 		if lang == 'C' then
@@ -2218,6 +2220,10 @@ package_type = memoize_package('package_type', function(package)
 			if t.has_bit then
 				has_bit = mod
 			end
+			local env = module_environment(mod, package, platform)
+			if env.ngx then
+				has_ngx = true
+			end
 		end
 	end
 	--disambiguate: package has both Lua/C and Lua+ffi modules.
@@ -2231,7 +2237,8 @@ package_type = memoize_package('package_type', function(package)
 	end
 	assert(not has_mod_c or has_c) --Lua/C modules without source?
 	return
-		has_ffi and (has_terra and 'Terra' or 'Lua+ffi')
+		has_ngx and 'Resty'
+		or has_ffi and (has_terra and 'Terra' or 'Lua+ffi')
 		or has_mod and (has_mod_c and 'Lua/C' or (has_terra and 'Terra' or 'Lua'))
 		or has_c and 'C' or 'other'
 end)
