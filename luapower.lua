@@ -348,7 +348,7 @@ end
 
 --make an abs path given a mgit-dir relative path
 function mgitpath(file)
-	return plusfile(mgit_dir, file)
+	return plusfile(plusfile(luapower_dir, mdit_dir), file)
 end
 
 
