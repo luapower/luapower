@@ -348,7 +348,7 @@ end
 
 --make an abs path given a mgit-dir relative path
 function mgitpath(file)
-	return plusfile(plusfile(luapower_dir, mdit_dir), file)
+	return plusfile(plusfile(luapower_dir, mgit_dir), file)
 end
 
 
@@ -1257,9 +1257,10 @@ end)
 installed_packages = memoize('installed_packages', function()
 	local t = {}
 	for f, _, ftype in dir(powerpath(mgitpath())) do
-		if ftype == 'dir' and fs.is(powerpath(git_dir(f)), 'dir')
-		then
-			t[f] = true
+		if ftype == 'dir' then
+			if fs.is(powerpath(git_dir(f)), 'dir') then
+				t[f] = true
+			end
 		end
 	end
 	return t
