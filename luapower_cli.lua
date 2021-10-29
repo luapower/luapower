@@ -248,8 +248,7 @@ end
 
 local function help()
 	print''
-	print(_([[
-USAGE: lp [-s|--server IP|NAME] [-p|--port PORT] COMMAND ...]], arg[0]))
+	print(_('USAGE: lp [-s|--server IP|NAME] [-p|--port PORT] COMMAND ...'))
 	for i,t in ipairs(action_list) do
 		if t.name then
 			print(_('   %-30s %s', t.name .. ' ' .. t.args, t.info))

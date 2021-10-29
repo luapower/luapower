@@ -627,7 +627,7 @@ local function tracking_state(env)
 		local luastate = require'luastate'
 		state = luastate.open()
 		state:openlibs()
-		state:push{[0] = package.exedir} --used by some modules to get the exe dir
+		state:push{[0] = arg[0]} --used to make `glue.bin`
 		state:setglobal'arg'
 		state:push(install_trackers)
 		local ok, err = state:call(env, builtin_modules, filter, glue.attr)
