@@ -475,9 +475,7 @@ function check_platform(platform)
 	if not platform then
 		return current_platform()
 	end
-	glue.assert(supported_platforms[platform],
-		'unknown platform "%s"', platform)
-	return platform
+	return supported_platforms[platform] and platform
 end
 
 
@@ -1331,8 +1329,8 @@ end
 --check if a path is valid for containing platform-specific modules
 --(optionally test for a specific platform) and return that platform.
 local function module_platform_path(p, platform)
-	platform = platform and check_platform(platform) or '[^/]+'
-	return p:match('^bin/('..platform..')/clib/') --Lua/C modules
+	platform = platform and check_platform(platform)
+	return platform and p:match('^bin/('..platform..')/clib/') --Lua/C modules
 end
 
 --check if a path is valid for containing docs.
@@ -1596,6 +1594,7 @@ end
 
 ffi_module_package = memoize('ffi_module_package', function(mod, package, platform, ...)
 	platform = check_platform(platform)
+	if not platform then return end
 	--shortcut: try current package.
 	if package and ffi_module_in_package(mod, package, platform) then
 		return package
@@ -1644,6 +1643,7 @@ end)
 --they can also be declared in the header section of the package doc file.
 bin_deps = memoize_package('bin_deps', function(package, platform)
 	platform = check_platform(platform)
+	if not platform then return end
 	local t1 = what_tags(package) and what_tags(package).dependencies
 	local t2 = doc_tags(package, package) and doc_tags(package, package).dependencies
 	local t = glue.update({}, t1 and t1[platform], t2 and t2[platform])
@@ -1905,6 +1905,7 @@ end
 
 function track_module_platform(mod, package, platform)
 	platform = check_platform(platform)
+	if not platform then return end
 	package = package or module_package(mod)
 	load_db()
 	if package then
@@ -2294,6 +2295,7 @@ end
 --build order that assures that all the dependencies are built first.
 build_order = memoize('build_order', function(packages, platform)
 	platform = check_platform(platform)
+	if not platform then return end
 	local function input_packages()
 		if not packages then
 			return glue.update({}, installed_packages())
@@ -2391,6 +2393,7 @@ end)
 load_errors = memoize_opt_package('load_errors', function(package, platform)
 	local errs = {}
 	local platform = check_platform(platform)
+	if not platform then return errs end
 	for mod in pairs(modules(package)) do
 		if module_platforms(mod, package)[platform] then
 			local err = module_load_error(mod, package, platform)
