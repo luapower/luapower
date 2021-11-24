@@ -1905,7 +1905,7 @@ end
 
 function track_module_platform(mod, package, platform)
 	platform = check_platform(platform)
-	if not platform then return end
+	if not platform then return {} end
 	package = package or module_package(mod)
 	load_db()
 	if package then
