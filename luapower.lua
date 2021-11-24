@@ -308,23 +308,23 @@ luapower_dir = '.'     --the location of the luapower tree to inspect on
 mgit_dir = '.mgit'     --relative to luapower_dir
 
 --platforms
-supported_os_list = {'mingw', 'linux', 'osx'}
+supported_os_list = {'mingw', 'linux'} --, 'osx'}
 supported_os_platform_list = {
 	mingw = {'mingw64'},
 	linux = {'linux64'},
-	osx   = {'osx64'},
+	--osx   = {'osx64'},
 }
-supported_platform_list = {'mingw64', 'linux64', 'osx64'}
+supported_platform_list = {'mingw64', 'linux64'} --, 'osx64'}
 
 supported_os_platforms = {
 	mingw = {mingw64 = true},
 	linux = {linux64 = true},
-	osx   = {osx64 = true},
+	--osx   = {osx64 = true},
 }
 supported_platforms = {
 	mingw64 = true,
 	linux64 = true,
-	osx64 = true,
+	--osx64 = true,
 }
 
 servers = {}           --{platform = {'ip|host', port}}
