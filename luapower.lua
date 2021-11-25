@@ -1643,7 +1643,7 @@ end)
 --they can also be declared in the header section of the package doc file.
 bin_deps = memoize_package('bin_deps', function(package, platform)
 	platform = check_platform(platform)
-	if not platform then return end
+	if not platform then return {} end
 	local t1 = what_tags(package) and what_tags(package).dependencies
 	local t2 = doc_tags(package, package) and doc_tags(package, package).dependencies
 	local t = glue.update({}, t1 and t1[platform], t2 and t2[platform])
@@ -2295,7 +2295,7 @@ end
 --build order that assures that all the dependencies are built first.
 build_order = memoize('build_order', function(packages, platform)
 	platform = check_platform(platform)
-	if not platform then return end
+	if not platform then return {} end
 	local function input_packages()
 		if not packages then
 			return glue.update({}, installed_packages())
